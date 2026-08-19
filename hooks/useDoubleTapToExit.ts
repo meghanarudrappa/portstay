@@ -11,7 +11,7 @@ export const useDoubleTapToExit = (exitHandler: () => void) => {
         const backAction = () => {
             // Check if we're on the login or dashboard screen
             // console.log("pathname----", pathname);
-            const isLoginOrDashboard = pathname === '/' || pathname === '/msgDashboard';
+            const isLoginOrDashboard = pathname === '/' || pathname === '/attendance';
 
             if (!isLoginOrDashboard) {
                 return false;

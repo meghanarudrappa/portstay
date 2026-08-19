@@ -2,7 +2,7 @@
   "expo": {
     "name": "Portstay",
     "slug": "portstay",
-    "version": "1.5.0",
+    "version": "2.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
@@ -12,19 +12,19 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.portstay.app",
+      "usesCleartextTraffic": true,
       "permissions": [
         "READ_MEDIA_IMAGES",
         "WRITE_EXTERNAL_STORAGE",
         "READ_EXTERNAL_STORAGE",
         "POST_NOTIFICATIONS"
-        ],
-        "adaptiveIcon": {
+      ],
+      "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#ffffff"
-      },
-  "package": "com.portstay.app"
-}
-,
+      }
+    },
     "web": {
       "bundler": "metro",
       "output": "static",
@@ -40,7 +40,9 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-build-properties",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true
@@ -50,8 +52,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "546b8784-f5c7-469e-9633-49bf73771f0c"
+        "projectId": "7cb9b711-cbfc-44f3-88b5-9b8160c50db4"
       }
-    }
+    },
+    "owner": "meghanar"
   }
 }

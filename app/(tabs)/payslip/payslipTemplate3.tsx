@@ -19,7 +19,7 @@ import * as Sharing from "expo-sharing"
 import * as Print from "expo-print"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { StorageAccessFramework } from "expo-file-system"
-
+import { API_BASE_URL } from '../../config/api'; 
 const { width } = Dimensions.get("window")
 
 export default function PayslipScreen() {
@@ -34,7 +34,7 @@ export default function PayslipScreen() {
         try {
             // Dynamic data fetching from API
             const response = await fetch(
-                `https://www.portstay.com/fetching-payslip-mobile?email=${email}&month=${salMonth}`,
+                `${API_BASE_URL}/fetching-payslip-mobile?email=${email}&month=${salMonth}`,
                 {
                     method: "GET",
                     credentials: "include",
@@ -48,6 +48,7 @@ export default function PayslipScreen() {
                 setEmpDetails(data)
             } else {
                 Alert.alert("Error", "Failed to load payslip details")
+               
             }
             setDataLoading(false)
         } catch (error) {
@@ -237,7 +238,7 @@ export default function PayslipScreen() {
                 </div>
                 <div class="info-row">
                   <div class="info-label">Employee No</div>
-                  <div class="info-value">: ${empDetails.empNo || "--"}</div>
+                  <div class="info-value">: ${empDetails.empId || "--"}</div>
                 </div>
                 <div class="info-row">
                   <div class="info-label">Date Of Joining</div>
@@ -249,7 +250,7 @@ export default function PayslipScreen() {
                 </div>
                 <div class="info-row">
                   <div class="info-label">Pay Period</div>
-                  <div class="info-value">: ${empDetails.payPeriod || "--"}</div>
+                  <div class="info-value">: ${empDetails.payslipMonth || "--"}</div>
                 </div>
                 <div class="info-row">
                   <div class="info-label">PAN</div>
@@ -472,7 +473,7 @@ export default function PayslipScreen() {
                                 <View style={styles.detailRow}>
                                     <Text style={styles.detailLabel}>Pay Period</Text>
                                     <Text style={styles.detailColon}>:</Text>
-                                    <Text style={styles.detailValue}>{empDetails.payPeriod}</Text>
+                                    <Text style={styles.detailValue}>{empDetails.payslipMonth}</Text>
                                 </View>
                                 <View style={styles.detailRow}>
                                     <Text style={styles.detailLabel}>PAN</Text>
@@ -655,7 +656,7 @@ export default function PayslipScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: "#06607a",
+        backgroundColor: "#092678",
         paddingTop: Platform.OS === "ios" ? 50 : 25,
     },
     loadingContainer: {
@@ -670,7 +671,7 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         padding: 16,
-        backgroundColor: "#008374",
+        backgroundColor: '#4a56ff',
     },
     backButtonText: {
         fontSize: 14,
@@ -874,3 +875,4 @@ const styles = StyleSheet.create({
         marginLeft: 8,
     },
 })
+

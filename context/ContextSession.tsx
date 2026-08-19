@@ -1,6 +1,7 @@
 import { useRouter } from "expo-router";
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { Alert } from "react-native";
+import { API_BASE_URL } from '../app/config/api'; 
 
 type SessionData = Record<string, any> | null;
 
@@ -8,12 +9,14 @@ interface SessionContextType {
     sessionData: SessionData;
     getSessionDetails: () => void;
     handleLogout: () => void;
+    updateProfilePic: (newPicId: string) => void; // ADDED: Global update action item
 }
 
 const SessionContext = createContext<SessionContextType>({
     sessionData: null,
     getSessionDetails: () => { },
     handleLogout: () => { },
+    updateProfilePic: () => { }, // ADDED: Placeholder default callback
 });
 
 interface SessionProviderProps {
@@ -26,7 +29,7 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
 
     const getSessionDetails = async () => {
         try {
-            const response = await fetch("https://www.portstay.com/session-details", {
+            const response = await fetch(`${API_BASE_URL}/session-details`, {
                 method: "GET",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
@@ -34,41 +37,47 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
 
             const text = await response.text();
             try {
-                setSessionData(null);
                 const data = JSON.parse(text);
-                console.log("se----- --", sessionData)
+                console.log("se----- --", data);
                 setSessionData(data ?? {});
+                
                 if (data.loginId !== null && data.loginId !== undefined && data.loginId !== "") {
-                    router.push('/(tabs)/msgDashboard');
-                }
-                else {
-                    // router.replace('/(tabs)/login');
+                    const targetRoute = "/(tabs)/attendance" as const;
+                    router.push(targetRoute);
                 }
             }
             catch (jsonError) {
-                // console.error("JSON Parsing Error:", jsonError);
-                // Alert.alert("Error", "Invalid JSON response from the server.");
+                // Handle parsing anomalies gracefully
             }
         } catch (error) {
-            // Alert.alert("Error", "Failed to fetch session details. Please try again.");
+            // Handle request lifecycle drops gracefully
         }
     };
+
+    // ADDED: Updates the profile picture state universally in real time
+    const updateProfilePic = (newPicId: string) => {
+        setSessionData((prev) => {
+            if (!prev) return { profile_pic: newPicId };
+            return {
+                ...prev,
+                profile_pic: newPicId
+            };
+        });
+    };
+
     const handleLogout = async () => {
         try {
-            const response = await fetch('https://www.portstay.com/signout', {
+            const response = await fetch(`${API_BASE_URL}/signout`, {
                 method: 'GET',
-                credentials: 'include', // Important: to include cookies
+                credentials: 'include',
             });
             if (response.redirected || response.ok) {
-                // Optional: You can also navigate to lo/gin screen or show a message
                 setSessionData(null);
-                // Alert.alert('Logged out successfully');
-                router.replace('/(tabs)'); // assuming you're using React Navigation
+                router.replace('/(tabs)');
             } else {
                 Alert.alert('Logout failed');
             }
         } catch (error) {
-            // console.error('Logout error:', error);/
             Alert.alert('An error occurred during logout');
         }
     };
@@ -78,13 +87,12 @@ export const SessionProvider = ({ children }: SessionProviderProps) => {
     }, []);
 
     return (
-        <SessionContext.Provider value={{ sessionData, getSessionDetails, handleLogout }}>
+        <SessionContext.Provider value={{ sessionData, getSessionDetails, handleLogout, updateProfilePic }}>
             {children}
         </SessionContext.Provider>
     );
 };
 
-// Custom Hook for Using Context
 export const useSession = () => {
     return useContext(SessionContext);
 };

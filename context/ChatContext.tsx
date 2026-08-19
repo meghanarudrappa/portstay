@@ -7,6 +7,7 @@ import React, {
     ReactNode,
 } from "react";
 import { Alert } from "react-native";
+import { API_BASE_URL } from '../app/config/api'; 
 
 // Type for chat session data
 type ChatData = Record<string, any> | null;
@@ -35,7 +36,7 @@ export const SessionProvider = ({ children }: ChatProviderProps) => {
 
     const getChatDetails = async () => {
         try {
-            const response = await fetch('https://www.portstay.com/employee.chatUsers-mobile', {
+            const response = await fetch(`${API_BASE_URL}/employee.chatUsers-mobile`, {
                 method: "GET",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },

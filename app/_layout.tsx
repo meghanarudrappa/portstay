@@ -1,6 +1,6 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { router, Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
@@ -10,15 +10,17 @@ import { View, ActivityIndicator } from 'react-native';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { SessionProvider, useSession } from '@/context/ContextSession';
-import { useRouter } from 'expo-router';
+
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
+// This inner component runs safely inside the SessionProvider context
+function RootLayoutContent() {
   const colorScheme = useColorScheme();
   const { sessionData, getSessionDetails } = useSession();
   const [isLoading, setIsLoading] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
   const router = useRouter();
+  
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
   });
@@ -26,7 +28,9 @@ export default function RootLayout() {
   useEffect(() => {
     const initialize = async () => {
       try {
+        // Now safely accesses session logic within the provider context wrapper
         await getSessionDetails();
+        
         if (loaded) {
           await SplashScreen.hideAsync();
           const { allGranted } = await requestAllPermissions();
@@ -39,7 +43,6 @@ export default function RootLayout() {
           }, 100);
         }
       } catch (error) {
-        // console.error('Error during initialization:', error);
         setIsLoading(false);
         setIsInitialized(true);
       }
@@ -48,31 +51,44 @@ export default function RootLayout() {
     initialize();
   }, [loaded]);
 
+  // Handle automatic app routing redirection blocks
   useEffect(() => {
     if (isInitialized && !isLoading) {
       if (sessionData?.loginId) {
-        router.replace('/(tabs)/msgDashboard');
+        // If logged in, push user immediately to the fresh home dashboard
+        router.replace('/dashboard');
       } else {
-        // router.replace('/(tabs)/login');
+        // If not logged in, drop them gracefully onto your entry screen
+        router.replace('/(tabs)');
       }
     }
   }, [isInitialized, isLoading, sessionData]);
 
   if (!loaded || isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color={colorScheme === 'dark' ? '#fff' : '#000'} />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colorScheme === 'dark' ? '#000' : '#fff' }}>
+        <ActivityIndicator size="large" color={colorScheme === 'dark' ? '#fff' : '#435ffd'} />
       </View>
     );
   }
 
   return (
+    <Stack>
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      {/* <Stack.Screen name="login" options={{ headerShown: false }} /> */}
+      <Stack.Screen name="+not-found" />
+    </Stack>
+  );
+}
+
+// Master Layout Shell Wrapper
+export default function RootLayout() {
+  const colorScheme = useColorScheme();
+
+  return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <SessionProvider>
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="+not-found" />
-        </Stack>
+        <RootLayoutContent />
       </SessionProvider>
       <StatusBar style="auto" />
     </ThemeProvider>

@@ -5,720 +5,367 @@ import {
     StyleSheet,
     ScrollView,
     TouchableOpacity,
-    Alert,
-    ActivityIndicator,
     Platform,
-    Dimensions
+    StatusBar,
+    Image,
+    ActivityIndicator
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
-import * as Print from 'expo-print';
-import * as MediaLibrary from 'expo-media-library';
-import * as DocumentPicker from 'expo-document-picker';
-import * as IntentLauncher from 'expo-intent-launcher';
-import { StorageAccessFramework } from 'expo-file-system';
 import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const { width } = Dimensions.get('window');
+export default function SalaryOverviewScreen() {
+    // 👇 RECEIVE EVERYTHING SENT FROM THE ROUTER HERE 👇
+    const { data, selectedMonth, selectedYear } = useLocalSearchParams<{
+        data?: string;
+        selectedMonth?: string;
+        selectedYear?: string;
+    }>();
 
-export default function PayslipsScreen() {
-    const { data } = useLocalSearchParams();
-    const [empSalary, setEmpSalary] = useState<any>({});
-    const [loading, setLoading] = useState(false);
+    const [empSalary, setEmpSalary] = useState<any>(null);
     const [month, setMonth] = useState('');
     const [year, setYear] = useState('');
     const router = useRouter();
 
-    useEffect(() => {
-        if (typeof data === 'string') {
-            try {
-                const parsed = JSON.parse(data);
-                // console.log("Parsed Data:", parsed);
-                setEmpSalary(parsed);
-
-                // Set current month and year
-                const date = new Date();
-                setMonth(date.toLocaleString('default', { month: 'long' }));
-                setYear(date.getFullYear().toString());
-            } catch (err) {
-                // console.error("Failed to parse JSON:", err);
-                // Alert.alert("Error", "Failed to load payslip data");
-            }
-        }
-    }, [data]);
-
-    const generatePdfHtml = () => {
-        return `
-      <html>
-        <head>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
-          <style>
-            body {
-              font-family: 'Helvetica', sans-serif;
-              margin: 0;
-              padding: 20px;
-              color: #333;
-            }
-            .header {
-              text-align: center;
-              margin-bottom: 30px;
-              padding-bottom: 20px;
-              border-bottom: 2px solid #4f46e5;
-            }
-            .company-name {
-              font-size: 24px;
-              font-weight: bold;
-              color: #4f46e5;
-              margin-bottom: 5px;
-            }
-            .document-title {
-              font-size: 18px;
-              color: #666;
-              margin-bottom: 5px;
-            }
-            .period {
-              font-size: 16px;
-              color: #888;
-            }
-            .employee-info {
-              display: flex;
-              justify-content: space-between;
-              margin-bottom: 30px;
-              padding: 15px;
-              background-color: #f8f9fa;
-              border-radius: 8px;
-            }
-            .info-column {
-              flex: 1;
-            }
-            .info-label {
-              font-size: 12px;
-              color: #666;
-              margin-bottom: 3px;
-            }
-            .info-value {
-              font-size: 14px;
-              font-weight: 500;
-              margin-bottom: 10px;
-            }
-            .section {
-              margin-bottom: 25px;
-              border: 1px solid #eee;
-              border-radius: 8px;
-              overflow: hidden;
-            }
-            .section-title {
-              font-size: 16px;
-              font-weight: 600;
-              padding: 12px 15px;
-              background-color: #f0f4ff;
-              color: #4f46e5;
-              border-bottom: 1px solid #eee;
-            }
-            .section-content {
-              padding: 0;
-            }
-            .row {
-              display: flex;
-              justify-content: space-between;
-              padding: 12px 15px;
-              border-bottom: 1px solid #eee;
-            }
-            .row:last-child {
-              border-bottom: none;
-            }
-            .label {
-              font-size: 14px;
-              color: #555;
-            }
-            .value {
-              font-size: 14px;
-              font-weight: 500;
-            }
-            .total-row {
-              background-color: #f0f4ff;
-              font-weight: 600;
-            }
-            .net-pay {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              padding: 15px;
-              background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-              color: white;
-              border-radius: 8px;
-              margin-top: 20px;
-            }
-            .net-pay-label {
-              font-size: 16px;
-              font-weight: bold;
-            }
-            .net-pay-value {
-              font-size: 22px;
-              font-weight: bold;
-            }
-            .footer {
-              margin-top: 40px;
-              text-align: center;
-              font-size: 12px;
-              color: #888;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div class="company-name">Portstay</div>
-            <div class="document-title">Salary Slip</div>
-            <div class="period">${month} ${year}</div>
-          </div>
-          
-          <div class="employee-info">
-            <div class="info-column">
-              <div class="info-label">Employee Name</div>
-              <div class="info-value">John Doe</div>
-              
-              <div class="info-label">Employee ID</div>
-              <div class="info-value">EMP001</div>
-            </div>
-            
-            <div class="info-column">
-              <div class="info-label">Department</div>
-              <div class="info-value">Engineering</div>
-              
-              <div class="info-label">Designation</div>
-              <div class="info-value">Software Engineer</div>
-            </div>
-            
-            <div class="info-column">
-              <div class="info-label">Bank Account</div>
-              <div class="info-value">XXXX1234</div>
-              
-              <div class="info-label">PAN</div>
-              <div class="info-value">ABCDE1234F</div>
-            </div>
-          </div>
-          
-          <div class="section">
-            <div class="section-title">Earnings</div>
-            <div class="section-content">
-              <div class="row">
-                <div class="label">Basic Salary</div>
-                <div class="value">₹${empSalary.basicSal || 0}</div>
-              </div>
-              <div class="row">
-                <div class="label">House Rent Allowance</div>
-                <div class="value">₹${empSalary.hra || 0}</div>
-              </div>
-              <div class="row">
-                <div class="label">Fixed Allowance</div>
-                <div class="value">₹${empSalary.fixedAllow || 0}</div>
-              </div>
-              <div class="row total-row">
-                <div class="label">Gross Pay</div>
-                <div class="value">₹${empSalary.grossPay || 0}</div>
-              </div>
-            </div>
-          </div>
-          
-          <div class="net-pay">
-            <div class="net-pay-label">Net Pay</div>
-            <div class="net-pay-value">₹${empSalary.monthlyCTC || 0}</div>
-          </div>
-          
-          <div class="footer">
-            <p>This is a computer-generated document. No signature is required.</p>
-            <p>© ${year} Portstay. All rights reserved.</p>
-          </div>
-        </body>
-      </html>
-    `;
+    const formatCurrency = (val: any) => {
+        if (val === undefined || val === null) return '0.00';
+        let cleanVal = String(val).trim().replace(/,/g, '');
+        const num = Number(cleanVal);
+        return isNaN(num) ? '0.00' : num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     };
-
-    const downloadPdf = async () => {
+  useEffect(() => {
+    if (typeof data === 'string') {
         try {
-            setLoading(true);
+            const parsed = JSON.parse(data);
+            console.log("🟢 PARSED SALARY DATA OBJECT:", parsed);
 
-            const html = generatePdfHtml(); // Your HTML template
-            const { uri } = await Print.printToFileAsync({ html });
+            // 1. Safe extraction of numeric base numbers
+            const monthlyTotal = Number(String(parsed.monthlyCTC || parsed.monthCtc || 0).replace(/[^0-9.]/g, ''));
+            const annualTotal = Number(String(parsed.annualCTC || parsed.annualCtc || 0).replace(/[^0-9.]/g, ''));
 
-            const fileName = `Payslip-${month}-${year}.pdf`;
+            // 2. Resolve field items or dynamically fallback to calculated ratios if keys are missing
+            const basicSalResolved = parsed.basicSal !== undefined && parsed.basicSal !== null 
+                ? parsed.basicSal 
+                : (monthlyTotal > 0 ? (monthlyTotal * 0.50).toFixed(2) : 0);
 
-            if (Platform.OS === 'android') {
-                // Try fetching the directory URI from AsyncStorage
-                const storedDirectoryUri = await AsyncStorage.getItem('pdfDirectoryUri');
+            const hraResolved = parsed.hra !== undefined && parsed.hra !== null 
+                ? parsed.hra 
+                : (monthlyTotal > 0 ? (monthlyTotal * 0.25).toFixed(2) : 0);
 
-                let directoryUri = storedDirectoryUri;
+            const fixedAllowResolved = parsed.fixedAllow !== undefined && parsed.fixedAllow !== null 
+                ? parsed.fixedAllow 
+                : (monthlyTotal > 0 ? (monthlyTotal * 0.25).toFixed(2) : 0);
 
-                if (!directoryUri) {
-                    // Request permissions and ask user to select the folder
-                    const permissions = await StorageAccessFramework.requestDirectoryPermissionsAsync();
-                    if (!permissions.granted) {
-                        Alert.alert('Permission Denied', 'Cannot access the file system');
-                        setLoading(false);
-                        return;
-                    }
+            // 3. Construct a fully normalized data structure
+            const normalizedSalary = {
+                ...parsed,
+                annualCTC: annualTotal > 0 ? annualTotal : (monthlyTotal * 12),
+                monthlyCTC: monthlyTotal,
+                basicSal: basicSalResolved,
+                hra: hraResolved,
+                fixedAllow: fixedAllowResolved,
+                grossPay: parsed.grossPay || monthlyTotal,
+                deductionAmt: parsed.deductionAmt || parsed.detuctMonthsal || 0,
+            };
+            
+            setEmpSalary(normalizedSalary);
 
-                    directoryUri = permissions.directoryUri;
-
-                    // Save the selected directory URI for future use
-                    await AsyncStorage.setItem('pdfDirectoryUri', directoryUri);
+            // 4. Determine Month and Year Context safely
+            if (selectedMonth) {
+                const cleanMonth = String(selectedMonth).trim();
+                const parts = cleanMonth.split(/\s+/);
+                if (parts.length > 1) {
+                    setMonth(parts[0]);
+                    setYear(parts[1]);
+                } else {
+                    setMonth(cleanMonth);
+                    setYear(selectedYear || '2026');
                 }
-
-                // Now that we have the directory URI, create and write to the file
-                const base64 = await FileSystem.readAsStringAsync(uri, {
-                    encoding: FileSystem.EncodingType.Base64,
-                });
-
-                const fileUri = await StorageAccessFramework.createFileAsync(
-                    directoryUri,
-                    fileName,
-                    'application/pdf'
-                );
-
-                await FileSystem.writeAsStringAsync(fileUri, base64, {
-                    encoding: FileSystem.EncodingType.Base64,
-                });
-
-                Alert.alert('Success', `PDF saved successfully`);
-            } else {
-                // iOS fallback: Share the file on iOS
-                await Sharing.shareAsync(uri, {
-                    UTI: '.pdf',
-                    mimeType: 'application/pdf',
-                });
+                return;
             }
 
-            setLoading(false);
-        } catch (error) {
-            // console.error('Error generating PDF:', error);
-            // Alert.alert('Error', 'Failed to generate PDF');
-            setLoading(false);
+            // Fallback parsing if no router params were passed over
+            const rawPeriodText = parsed.payMonth || parsed.payPeriod || '';
+            if (rawPeriodText) {
+                const parts = rawPeriodText.trim().split(/\s+/);
+                if (parts.length > 1) {
+                    setMonth(parts[0]);
+                    setYear(parts[1]);
+                } else {
+                    setMonth(rawPeriodText);
+                    setYear('2026');
+                }
+            } else {
+                setMonth('Salary');
+                setYear('Details');
+            }
+
+        } catch (err) {
+            console.error("Failed to parse salary payload data:", err);
         }
-    };
+    }
+}, [data]);// Keeps dependencies isolated to avoid triggering rapid infinite state re-renders
 
-    const sharePdf = async () => {
-        try {
-            setLoading(true);
+    if (!empSalary) {
+        return (
+            <View style={[styles.container, styles.centerComponents]}>
+                <ActivityIndicator size="large" color="#2A26D9" />
+                <Text style={styles.loadingText}>Fetching Salary Dashboard details...</Text>
+            </View>
+        );
+    }
 
-            // Generate PDF
-            const html = generatePdfHtml();
-            const { uri } = await Print.printToFileAsync({ html });
+    // UPDATED: Dynamically falls back to payPeriod directly if the split state is still setting
+    const displayMonthText = month ? `${month} ${year}` : (empSalary?.payPeriod || empSalary?.payMonth || '');
 
-            // Set the custom name for the PDF file
-            const month = "May"; // Replace with actual month
-            const year = "2025"; // Replace with actual year
-            const fileName = `Payslip-${month}-${year}.pdf`;
-
-            // Get a temporary directory for the file (or use a folder of your choice)
-            const filePath = FileSystem.documentDirectory + fileName;
-
-            // Rename the generated PDF to the desired name
-            await FileSystem.moveAsync({
-                from: uri,
-                to: filePath,
-            });
-
-            // Now share the renamed file
-            await Sharing.shareAsync(filePath, {
-                UTI: '.pdf',
-                mimeType: 'application/pdf',
-            });
-
-            setLoading(false);
-        } catch (error) {
-            // console.error('Error sharing PDF:', error);
-            // Alert.alert('Error', 'Failed to share PDF');
-            setLoading(false);
-        }
-    };
+   const grossVal = Number(String(empSalary?.grossPay || 0).replace(/[^0-9.]/g, ''));
+    const ctcVal = Number(String(empSalary?.annualCTC || 0).replace(/[^0-9.]/g, ''));
+    
+    // Explicitly check for both valid numbers and non-zero denominators to completely bypass NaN risks
+    const grossPercentage = (!isNaN(grossVal) && !isNaN(ctcVal) && ctcVal > 0) 
+        ? ((grossVal * 12) / ctcVal * 100).toFixed(2) 
+        : '0.00';
 
     return (
         <View style={styles.container}>
-            <ScrollView style={styles.payslipDetailContainer}>
-                <View
-                    style={styles.backButton}
-                >
-                    <TouchableOpacity onPress={() => router.back()}>
-
-                        <Feather name="arrow-left" size={24} color="#fff" />
+            <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false}/>
+            
+            {/* Top Navigation Header with centered text and absolute left arrow */}
+            <View style={styles.headerBackground}>
+                <View style={styles.backButtonRow}>
+                    <TouchableOpacity onPress={() => router.back()} style={styles.leftIconAbsoluteHitbox}>
+                        <Feather name="arrow-left" size={24} color="#1E293B" />
                     </TouchableOpacity>
                     <Text style={styles.backButtonText}>Salary Details</Text>
                 </View>
+            </View>
 
-                {/* <View style={styles.payslipDetailHeader}>  
-                    <Text style={styles.payslipDetailTitle}>
-                        Salary Details
-                    </Text>
-                     <Text style={styles.payslipDetailDate}>
-                        Generated on {new Date().toLocaleDateString()}
-                    </Text>
-                </View> */}
+            <ScrollView style={styles.dashboardContainer} showsVerticalScrollIndicator={false} bounces={false}>
+                
+                {/* Title Section */}
+                <View style={styles.titleSection}>
+                    <Text style={styles.mainTitleText}>Salary</Text>
+                    <Text style={styles.subTitleText}>Manage and track your salary</Text>
+                </View>
 
-                <View style={styles.payslipDetailCard}>
+                {/* Main Summary Hero Card (Top Card Badge) */}
+                <View style={styles.gradientCardWrapper}>
                     <LinearGradient
-                        colors={['#4f46e5', '#7c3aed']}
+                        colors={['#1E3A8A', '#155bf2']} 
                         start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.netPayCard}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.heroCard}
                     >
-                        <View>
-                            <Text style={styles.netPayLabel}>Net Pay</Text>
-                            <Text style={styles.netPayValue}>₹{empSalary.monthlyCTC || 0}</Text>
-                        </View>
-                        <View style={styles.netPayIcon}>
-                            <Feather name="credit-card" size={24} color="white" />
+                        <View style={styles.heroLeftColumn}>
+                        {/* Dynamic lookup checking your active backend responses first */}
+                        {displayMonthText ? (
+                            <View style={styles.calendarBadge}>
+                                <Feather name="calendar" size={12} color="#2563EB" style={{ marginRight: 4 }} />
+                                <Text style={styles.calendarBadgeText}>
+                                    {displayMonthText}
+                                </Text>
+                            </View>
+                        ) : null}
+                        
+                        <Text style={styles.heroLabel}>Monthly Salary</Text>
+                        <Text style={styles.heroValue}>₹{formatCurrency(empSalary?.monthlyCTC)}</Text>
+                        
+                        <Text style={styles.heroSubLabel}>Annual CTC</Text>
+                        <Text style={styles.heroSubValue}>₹{formatCurrency(empSalary?.annualCTC)}</Text>
+                    </View>
+
+                        <View style={styles.heroRightColumn}>
+                            <Image 
+                                source={require('../../../assets/images/Salaryslip.png')} 
+                                style={styles.walletAssetImage}
+                                resizeMode="contain"
+                            />
                         </View>
                     </LinearGradient>
+                </View>
 
-                    {/* <View style={styles.employeeInfoCard}>
-                        <View style={styles.employeeInfoRow}>
-                            <View style={styles.employeeInfoItem}>
-                                <Text style={styles.employeeInfoLabel}>Employee ID</Text>
-                                <Text style={styles.employeeInfoValue}>EMP001</Text>
-                            </View>
-                            <View style={styles.employeeInfoItem}>
-                                <Text style={styles.employeeInfoLabel}>Department</Text>
-                                <Text style={styles.employeeInfoValue}>Engineering</Text>
-                            </View>
+                {/* Metrics Overview Grid */}
+                <Text style={styles.sectionDividerTitle}>Metrics Overview</Text>
+                <View style={styles.metricsGrid}>
+                    <View style={styles.metricCard}>
+                        <View style={[styles.iconCircle, { backgroundColor: '#EFF6FF' }]}>
+                            <Feather name="credit-card" size={16} color="#2563EB" />
                         </View>
-                        <View style={styles.employeeInfoRow}>
-                            <View style={styles.employeeInfoItem}>
-                                <Text style={styles.employeeInfoLabel}>Pay Period</Text>
-                                <Text style={styles.employeeInfoValue}>{month} {year}</Text>
-                            </View>
-                            <View style={styles.employeeInfoItem}>
-                                <Text style={styles.employeeInfoLabel}>Pay Date</Text>
-                                <Text style={styles.employeeInfoValue}>{new Date().toLocaleDateString()}</Text>
-                            </View>
-                        </View>
-                    </View> */}
+                        <Text style={styles.metricLabel}>Gross Pay</Text>
+                        <Text style={styles.metricValue}>₹{formatCurrency(empSalary?.grossPay)}</Text>
+                        <Text style={styles.metricPercentage}>{grossPercentage}% of CTC</Text>
+                    </View>
 
-                    <View style={styles.payslipDetailSection}>
-                        <View style={styles.sectionHeader}>
-                            <Feather name="dollar-sign" size={18} color="#4f46e5" />
-                            <Text style={styles.payslipDetailSectionTitle}>Earnings</Text>
+                    <View style={styles.metricCard}>
+                        <View style={[styles.iconCircle, { backgroundColor: '#FEF2F2' }]}>
+                            <Feather name="alert-circle" size={16} color="#DC2626" />
                         </View>
-                        <View style={styles.payslipDetailRow}>
-                            <Text style={styles.payslipDetailLabel}>Basic Salary</Text>
-                            <Text style={styles.payslipDetailValue}>₹{empSalary.basicSal || 0}</Text>
-                        </View>
-                        <View style={styles.payslipDetailRow}>
-                            <Text style={styles.payslipDetailLabel}>House Rent Allowance</Text>
-                            <Text style={styles.payslipDetailValue}>₹{empSalary.hra || 0}</Text>
-                        </View>
-                        {empSalary.customizeEarn &&
-                            Object.entries(empSalary.customizeEarn).map(([key, value]) => (
-                                <View key={key} style={styles.payslipDetailRow}>
-                                    <Text style={styles.payslipDetailLabel}>{String(key)}</Text>
-                                    <Text style={styles.payslipDetailValue}>₹{String(value)}</Text>
-                                </View>
-                            ))}
-                        <View style={styles.payslipDetailRow}>
-                            <Text style={styles.payslipDetailLabel}>Fixed Allowance</Text>
-                            <Text style={styles.payslipDetailValue}>₹{empSalary.fixedAllow || 0}</Text>
-                        </View>
-                        {empSalary.customizeReimburse && Object.keys(empSalary.customizeReimburse).length > 0 && (
-                            <View style={[styles.sectionHeader, { marginTop: 10 }]}>
-                                <Feather name="dollar-sign" size={18} color="#4f46e5" />
-                                <Text style={styles.payslipDetailSectionTitle}>Other Allowances</Text>
-                            </View>
-                        )}
-                        {empSalary.customizeReimburse &&
-                            Object.entries(empSalary.customizeReimburse).map(([key, value]) => (
-                                <View key={key} style={styles.payslipDetailRow}>
-                                    <Text style={styles.payslipDetailLabel}>{String(key)}</Text>
-                                    <Text style={styles.payslipDetailValue}>₹{String(value)}</Text>
-                                </View>
-                            ))}
-                        <View style={[styles.payslipDetailRow, styles.payslipDetailTotal]}>
-                            <Text style={styles.payslipDetailTotalLabel}>Gross Pay</Text>
-                            <Text style={styles.payslipDetailTotalValue}>₹{empSalary.monthlyCTC || 0}</Text>
-                        </View>
-                        {empSalary.customizeDeduct && Object.keys(empSalary.customizeDeduct).length > 0 && (
+                        <Text style={styles.metricLabel}>Deductions</Text>
+                        <Text style={styles.metricValue}>₹{formatCurrency(empSalary?.deductionAmt)}</Text>
+                        <Text style={styles.metricPercentage}>0% of CTC</Text>
+                    </View>
 
-                            <View style={[styles.sectionHeader, { marginTop: 10 }]}>
-                                <Feather name="dollar-sign" size={18} color="#4f46e5" />
-                                <Text style={styles.payslipDetailSectionTitle}>Deduction</Text>
-                            </View>
+                    <View style={styles.metricCard}>
+                        <View style={[styles.iconCircle, { backgroundColor: '#ECFDF5' }]}>
+                            <Feather name="check-square" size={16} color="#059669" />
+                        </View>
+                        <Text style={styles.metricLabel}>Net Pay</Text>
+                        <Text style={styles.metricValue}>₹{formatCurrency(empSalary?.monthlyCTC)}</Text>
+                        <Text style={styles.metricPercentage}>{grossPercentage}% of CTC</Text>
+                    </View>
+                </View>
 
-                        )}
-                        {empSalary.customizeDeduct &&
-                            Object.entries(empSalary.customizeDeduct).map(([key, value]) => (
-                                <View key={key} style={styles.payslipDetailRow}>
-                                    <Text style={styles.payslipDetailLabel}>{String(key)}</Text>
-                                    <Text style={styles.payslipDetailValue}>₹{String(value)}</Text>
-                                </View>
-                            ))}
-                        <View style={[styles.payslipDetailRow, styles.payslipDetailTotal]}>
-                            <Text style={styles.payslipDetailTotalLabel}>Net Pay</Text>
-                            <Text style={styles.payslipDetailTotalValue}>₹{empSalary.grossPay || 0}</Text>
+                {/* Breakdown Summary Box */}
+                <Text style={styles.sectionDividerTitle}>Breakdown Summary</Text>
+                <View style={styles.horizontalBreakdownCard}>
+                    <View style={styles.breakdownRow}>
+                        <View style={[styles.rowIconBox, { backgroundColor: '#EFF6FF' }]}>
+                            <Feather name="archive" size={16} color="#2563EB" />
+                        </View>
+                        <View style={styles.rowMiddleContent}>
+                            <Text style={styles.rowValueText}>₹{formatCurrency(empSalary?.grossPay)}</Text>
+                            <Text style={styles.rowLabelText}>Total Earnings</Text>
                         </View>
                     </View>
 
-                    {/* You can uncomment and use this section if needed
-          <View style={styles.payslipDetailSection}>
-            <View style={styles.sectionHeader}>
-              <Feather name="minus-circle" size={18} color="#4f46e5" />
-              <Text style={styles.payslipDetailSectionTitle}>Deductions</Text>
-            </View>
-            <View style={styles.payslipDetailRow}>
-              <Text style={styles.payslipDetailLabel}>Income Tax</Text>
-              <Text style={styles.payslipDetailValue}>₹500.00</Text>
-            </View>
-            <View style={styles.payslipDetailRow}>
-              <Text style={styles.payslipDetailLabel}>Health Insurance</Text>
-              <Text style={styles.payslipDetailValue}>₹150.00</Text>
-            </View>
-            <View style={styles.payslipDetailRow}>
-              <Text style={styles.payslipDetailLabel}>Retirement</Text>
-              <Text style={styles.payslipDetailValue}>₹100.00</Text>
-            </View>
-            <View style={[styles.payslipDetailRow, styles.payslipDetailTotal]}>
-              <Text style={styles.payslipDetailTotalLabel}>Total Deductions</Text>
-              <Text style={styles.payslipDetailTotalValue}>₹750.00</Text>
-            </View>
-          </View>
-          */}
+                    <View style={styles.breakdownRow}>
+                        <View style={[styles.rowIconBox, { backgroundColor: '#FFFBEB' }]}>
+                            <Feather name="gift" size={16} color="#D97706" />
+                        </View>
+                        <View style={styles.rowMiddleContent}>
+                            <Text style={styles.rowValueText}>₹{formatCurrency(empSalary?.otherAllow)}</Text>
+                            <Text style={styles.rowLabelText}>Other Allowances</Text>
+                        </View>
+                    </View>
+
+                    <View style={[styles.breakdownRow, { borderBottomWidth: 0 }]}>
+                        <View style={[styles.rowIconBox, { backgroundColor: '#F9FAFB' }]}>
+                            <Feather name="shield" size={16} color="#4B5563" />
+                        </View>
+                        <View style={styles.rowMiddleContent}>
+                            <Text style={styles.rowValueText}>₹{formatCurrency(empSalary?.deductionAmt)}</Text>
+                            <Text style={styles.rowLabelText}>Total Deductions</Text>
+                        </View>
+                    </View>
                 </View>
 
-                {/* <View style={styles.actionButtonsContainer}>
-                    <TouchableOpacity
-                        style={styles.downloadButton}
-                        onPress={downloadPdf}
-                        disabled={loading}
-                    >
-                        {loading ? (
-                            <ActivityIndicator color="#fff" size="small" />
-                        ) : (
-                            <>
-                                <Feather name="download" size={18} color="#fff" />
-                                <Text style={styles.actionButtonText}>Download PDF</Text>
-                            </>
-                        )}
-                    </TouchableOpacity>
+                {/* Earnings Breakdown Section Header with Fixed Month Badge */}
+                <View style={styles.breakdownHeaderRowContainer}>
+                    <Text style={styles.sectionDividerTitleInline}>Earnings Breakdown</Text>
+                    {displayMonthText ? (
+                        <View style={styles.tableMonthBadge}>
+                            <Text style={styles.tableMonthBadgeText}>{displayMonthText}</Text>
+                        </View>
+                    ) : null}
+                </View>
+                
+                {/* Complete Itemized List Table */}
+                <View style={styles.breakdownDetailsCard}>
+                    <View style={styles.breakdownTableHeaderRow}>
+                        <Text style={styles.tableHeaderLabel}>Earnings</Text>
+                        <Text style={styles.tableHeaderValue}>Amount (₹)</Text>
+                    </View>
 
-                    <TouchableOpacity
-                        style={styles.shareButton}
-                        onPress={sharePdf}
-                        disabled={loading}
-                    >
-                        <Feather name="share-2" size={18} color="#fff" />
-                        <Text style={styles.actionButtonText}>Share</Text>
-                    </TouchableOpacity>
-                </View> */}
+                    <View style={styles.tableItemRow}>
+                        <Text style={styles.tableItemLabel}>Basic Salary</Text>
+                        <Text style={styles.tableItemValue}>₹{formatCurrency(empSalary?.basicSal)}</Text>
+                    </View>
 
-                {/* <View style={styles.footer}>
-                    <Text style={styles.footerText}>
-                        This is a computer-generated document.
-                    </Text>
-                    <Text style={styles.footerText}>
-                        No signature is required.
-                    </Text>
-                </View> */}
+                    <View style={styles.tableItemRow}>
+                        <Text style={styles.tableItemLabel}>House Rent Allowance</Text>
+                        <Text style={styles.tableItemValue}>₹{formatCurrency(empSalary?.hra)}</Text>
+                    </View>
+
+                    <View style={styles.tableItemRow}>
+                        <Text style={styles.tableItemLabel}>Fixed Allowance</Text>
+                        <Text style={styles.tableItemValue}>₹{formatCurrency(empSalary?.fixedAllow)}</Text>
+                    </View>
+
+                    {empSalary?.customizeEarn && Object.entries(empSalary.customizeEarn).map(([key, value]) => (
+                        <View key={key} style={styles.tableItemRow}>
+                            <Text style={styles.tableItemLabel}>{String(key)}</Text>
+                            <Text style={styles.tableItemValue}>₹{formatCurrency(value)}</Text>
+                        </View>
+                    ))}
+
+                    {/* Gross Pay Highlight Row */}
+                    <View style={[styles.tableItemRow, styles.grossHighlightRow]}>
+                        <Text style={[styles.tableItemLabel, styles.grossHighlightText]}>Gross Pay</Text>
+                        <Text style={[styles.tableItemValue, styles.grossHighlightText]}>₹{formatCurrency(empSalary?.grossPay)}</Text>
+                    </View>
+
+                    {/* Net Pay Highlight Row */}
+                    <View style={[styles.tableItemRow, styles.netHighlightRow, { borderBottomWidth: 0 }]}>
+                        <Text style={[styles.tableItemLabel, styles.netHighlightText]}>Net Pay</Text>
+                        <Text style={[styles.tableItemValue, styles.netHighlightText]}>₹{formatCurrency(empSalary?.monthlyCTC)}</Text>
+                    </View>
+                </View>
+
+                <View style={styles.footerSpacer} />
             </ScrollView>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: "#06607a",
-        paddingTop: 25,
-    },
-    payslipDetailContainer: {
-        flex: 1,
-        backgroundColor: "#06607a",
-    },
-    backButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 16,
-        backgroundColor: '#008374',
-    },
-    backButtonText: {
-        fontSize: 18,
-        fontWeight: '500',
-        color: '#ffffff',
-        marginLeft: 8,
-    },
-    payslipDetailHeader: {
-        padding: 16,
-        paddingTop: 0,
-    },
-    payslipDetailTitle: {
-        marginTop: 10,
-        fontSize: 24,
-        fontWeight: 'bold',
-        textAlign: 'center',
-        color: '#ffffff',
-    },
-    payslipDetailDate: {
-        fontSize: 14,
-        color: '#f5f5f5',
-        marginTop: 4,
-    },
-    payslipDetailCard: {
-        margin: 16,
-        backgroundColor: '#fff',
-        borderRadius: 12,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
-        overflow: 'hidden',
-    },
-    netPayCard: {
-        padding: 20,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    netPayLabel: {
-        fontSize: 14,
-        color: 'rgba(255, 255, 255, 0.8)',
-        marginBottom: 4,
-    },
-    netPayValue: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#fff',
-    },
-    netPayIcon: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: 'rgba(255, 255, 255, 0.2)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    employeeInfoCard: {
-        padding: 16,
-        backgroundColor: '#f9fafb',
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
-    },
-    employeeInfoRow: {
-        flexDirection: 'row',
-        marginBottom: 12,
-    },
-    employeeInfoItem: {
-        flex: 1,
-    },
-    employeeInfoLabel: {
-        fontSize: 12,
-        color: '#6b7280',
-        marginBottom: 2,
-    },
-    employeeInfoValue: {
-        fontSize: 14,
-        fontWeight: '500',
-        color: '#111827',
-    },
-    payslipDetailSection: {
-        padding: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
-    },
-    sectionHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    payslipDetailSectionTitle: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: '#111827',
-        marginLeft: 8,
-    },
-    payslipDetailRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        paddingVertical: 8,
-        borderBottomWidth: 1,
-        borderBottomColor: '#f0f0f0',
-    },
-    payslipDetailLabel: {
-        fontSize: 14,
-        color: '#6b7280',
-    },
-    payslipDetailValue: {
-        fontSize: 14,
-        fontWeight: '500',
-        color: '#111827',
-    },
-    payslipDetailTotal: {
-        marginTop: 8,
-        paddingTop: 8,
-        borderBottomWidth: 0,
-        backgroundColor: '#f9fafb',
-        padding: 8,
-        borderRadius: 6,
-    },
-    payslipDetailTotalLabel: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#111827',
-    },
-    payslipDetailTotalValue: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#111827',
-    },
-    actionButtonsContainer: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        margin: 16,
-        marginTop: 8,
-    },
-    downloadButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#4f46e5',
-        borderRadius: 8,
-        padding: 14,
-        flex: 1,
-        marginRight: 8,
-        shadowColor: '#4f46e5',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    shareButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#7c3aed',
-        borderRadius: 8,
-        padding: 14,
-        flex: 1,
-        marginLeft: 8,
-        shadowColor: '#7c3aed',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 4,
-        elevation: 3,
-    },
-    actionButtonText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#fff',
-        marginLeft: 8,
-    },
-    footer: {
-        padding: 16,
-        alignItems: 'center',
-        marginBottom: 20,
-    },
-    footerText: {
-        fontSize: 12,
-        color: '#6b7280',
-        textAlign: 'center',
-    },
+    container: { flex: 1, backgroundColor: '#F8FAFC' },
+    centerComponents: { justifyContent: 'center', alignItems: 'center', padding: 20 },
+    loadingText: { marginTop: 12, fontSize: 14, color: '#64748B', fontWeight: '500' },
+    
+    // Centered Navigation Header Layout Styles
+    headerBackground: { paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 50 : 20, backgroundColor: '#fff', borderBottomWidth: 1, borderColor: '#E2E8F0' },
+    backButtonRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', height: 50, position: 'relative' },
+    leftIconAbsoluteHitbox: { position: 'absolute', left: 0, padding: 8, zIndex: 10 },
+    backButtonText: { fontSize: 18, fontWeight: '700', color: '#0F172A', textAlign: 'center' },
+
+    dashboardContainer: { flex: 1, padding: 16 },
+    titleSection: { marginBottom: 20 },
+    mainTitleText: { fontSize: 24, fontWeight: '700', color: '#0F172A' },
+    subTitleText: { fontSize: 13, color: '#64748B', marginTop: 2 },
+    gradientCardWrapper: { borderRadius: 16, overflow: 'hidden', marginBottom: 24 },
+    heroCard: { padding: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    heroLeftColumn: { flex: 1 },
+    calendarBadge: { backgroundColor: '#FFFFFF', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', marginBottom: 12 },
+    calendarBadgeText: { color: '#2563EB', fontSize: 11, fontWeight: '700' },
+    heroLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: '500' },
+    heroValue: { color: '#FFFFFF', fontSize: 26, fontWeight: '800', marginBottom: 12 },
+    heroSubLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: '500' },
+    heroSubValue: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+    heroRightColumn: { justifyContent: 'center', alignItems: 'center', marginLeft: 10 },
+    walletAssetImage: { borderRadius:25, width: 160, height: 135 },
+    sectionDividerTitle: { fontSize: 14, fontWeight: '700', color: '#475569', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+    
+    // Inline Month Badge Styles matching image_cd4092.png
+    breakdownHeaderRowContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 24, marginBottom: 12 },
+    sectionDividerTitleInline: { fontSize: 14, fontWeight: '700', color: '#475569', textTransform: 'uppercase', letterSpacing: 0.5 },
+    tableMonthBadge: { backgroundColor: '#EFF6FF', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#BFDBFE' },
+    tableMonthBadgeText: { color: '#2563EB', fontSize: 11, fontWeight: '700' },
+
+    metricsGrid: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 24, gap: 8 },
+    metricCard: { flex: 1, backgroundColor: '#FFFFFF', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#E2E8F0' },
+    iconCircle: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+    metricLabel: { fontSize: 11, fontWeight: '500', color: '#64748B', marginBottom: 4 },
+    metricValue: { fontSize: 14, fontWeight: '700', color: '#0F172A', marginBottom: 4 },
+    metricPercentage: { fontSize: 10, color: '#94A3B8', fontWeight: '500' },
+    horizontalBreakdownCard: { backgroundColor: '#FFFFFF', borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', paddingHorizontal: 16 },
+    breakdownRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+    rowIconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
+    rowMiddleContent: { flex: 1 },
+    rowValueText: { fontSize: 15, fontWeight: '700', color: '#0F172A', marginBottom: 2 },
+    rowLabelText: { fontSize: 12, color: '#64748B' },
+    
+    breakdownDetailsCard: { backgroundColor: '#FFFFFF', borderRadius: 16, borderWidth: 1, borderColor: '#E2E8F0', overflow: 'hidden' },
+    breakdownTableHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', backgroundColor: '#F8FAFC', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
+    tableHeaderLabel: { fontSize: 12, fontWeight: '700', color: '#64748B' },
+    tableHeaderValue: { fontSize: 12, fontWeight: '700', color: '#64748B', textAlign: 'right' },
+    tableItemRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', alignItems: 'center' },
+    tableItemLabel: { fontSize: 13, color: '#334155', fontWeight: '500' },
+    tableItemValue: { fontSize: 13, fontWeight: '600', color: '#0F172A', textAlign: 'right' },
+    
+    grossHighlightRow: { backgroundColor: '#EFF6FF', borderBottomWidth: 1, borderBottomColor: '#DBEAFE' },
+    grossHighlightText: { color: '#2563EB', fontWeight: '700', fontSize: 14 },
+    netHighlightRow: { backgroundColor: '#ECFDF5' },
+    netHighlightText: { color: '#059669', fontWeight: '700', fontSize: 14 },
+    
+    footerSpacer: { height: 40 }
 });

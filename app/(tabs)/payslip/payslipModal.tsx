@@ -19,6 +19,7 @@ import * as Sharing from "expo-sharing"
 import * as Print from "expo-print"
 import AsyncStorage from "@react-native-async-storage/async-storage"
 import { StorageAccessFramework } from "expo-file-system"
+import { API_BASE_URL } from '../../config/api'; 
 
 const { width } = Dimensions.get("window");
 
@@ -31,7 +32,7 @@ export default function PayslipsScreen() {
   const router = useRouter();
   const loadPayDetails = async () => {
     setDataLoading(true)
-    const response = await fetch(`https://www.portstay.com/fetching-payslip-mobile?email=${email}&month=${salMonth}`, {
+    const response = await fetch(`${API_BASE_URL}/fetching-payslip-mobile?email=${email}&month=${salMonth}`, {
       method: "GET",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -388,6 +389,7 @@ export default function PayslipsScreen() {
       // Alert.alert('Error', 'Failed to share PDF');
       setLoading(false)
     }
+    
   }
   // const basicSalary = Object.keys(empDetails.earnComponent)[0];
   // const fixedSalary = Object.keys(empDetails.earnComponent)[1];
@@ -551,7 +553,7 @@ export default function PayslipsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#06607a",
+    backgroundColor: "#092678",
     paddingTop: 25,
   },
   payslipDetailContainer: {
@@ -561,7 +563,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 16,
-    backgroundColor: "#008374",
+    backgroundColor: '#4a56ff',
   },
   backButtonText: {
     fontSize: 14,
@@ -750,8 +752,8 @@ const styles = StyleSheet.create({
     padding: 14,
     flex: 1,
     marginLeft: 8,
-    shadowColor: "#7c3aed",
-    shadowOffset: { width: 0, height: 2 },
+   shadowColor: "#7c3aed",
+   shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 3,
@@ -763,3 +765,4 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 })
+

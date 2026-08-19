@@ -5,6 +5,7 @@ import { Alert, Image, Platform, StyleSheet, Text, TextInput, TouchableOpacity, 
 import * as ImagePicker from "expo-image-picker"
 import * as FileSystem from "expo-file-system"
 import { useSession } from "@/context/ContextSession"
+import { API_BASE_URL } from '../../config/api'; 
 
 export default function SuperAdminProfile() {
     const [firstName, setFirstName] = useState("")
@@ -17,7 +18,7 @@ export default function SuperAdminProfile() {
 
     const loadSalary = async () => {
         setLoading(true);
-        const response = await fetch(`https://www.portstay.com/owner-setting-mobile${sessionData?.userId}`, {
+        const response = await fetch(`${API_BASE_URL}/owner-setting-mobile${sessionData?.userId}`, {
             method: "GET",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
@@ -111,7 +112,7 @@ export default function SuperAdminProfile() {
                 base64Image = await convertImageToBase64(profileImage)
             }
 
-            const response = await fetch("https://www.portstay.com/owner-updateSuperadmin-mobile", {
+            const response = await fetch(`${API_BASE_URL}/owner-updateSuperadmin-mobile`, {
                 method: "POST",
                 body: JSON.stringify({
                     firstName: firstName,
@@ -152,7 +153,7 @@ export default function SuperAdminProfile() {
                 <View style={styles.avatarContainer}>
                     <Image
                         source={{
-                            uri: profileImage || `https://www.portstay.com/imageController/${profilePic}.do` || "https://www.portstay.com/resources/img/Profile/default_user_image.png",
+                            uri: profileImage || `${API_BASE_URL}/imageController/${profilePic}.do` || `${API_BASE_URL}/resources/img/Profile/default_user_image.png`,
                         }}
                         style={styles.avatar}
                     />

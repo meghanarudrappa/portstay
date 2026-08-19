@@ -1,5 +1,6 @@
 import { Client, IMessage } from '@stomp/stompjs';
 import SockJS from 'sockjs-client';
+import { API_BASE_URL } from '../../app/config/api'; 
 
 export interface ChatMessage {
     message?: string;
@@ -26,7 +27,7 @@ let stompClient: Client | null = null;
 
 
 export const connectSocket = (channelId: string, userId: string, onMessageReceived: MessageCallback, onNotificationReceived: NotificationCallback): void => {
-    const socket = new SockJS('https://www.portstay.com/ws');
+    const socket = new SockJS(`${API_BASE_URL}/ws`);
 
     stompClient = new Client({
         webSocketFactory: () => socket as WebSocket,

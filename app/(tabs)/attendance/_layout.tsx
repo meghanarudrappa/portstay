@@ -9,6 +9,7 @@ export default function StackLayout() {
 
   return (
     <View style={{ flex: 1, marginTop: 30 }}>
+      
       <Stack
         screenOptions={{
           headerStyle: {

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { API_BASE_URL } from '../app/config/api'; 
 import {
     View,
     Text,
@@ -73,7 +74,7 @@ export default function CreateGroupModal({
         try {
 
             const base64Image = await convertImageToBase64(groupImage as string);
-            const response = await fetch('https://www.portstay.com/create_port-mobile', {
+            const response = await fetch(`${API_BASE_URL}/create_port-mobile`, {
                 method: 'POST',
                 body: JSON.stringify({
                     name: groupName,

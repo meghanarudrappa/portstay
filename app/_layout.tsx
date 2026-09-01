@@ -56,10 +56,10 @@ function RootLayoutContent() {
     if (isInitialized && !isLoading) {
       if (sessionData?.loginId) {
         // If logged in, push user immediately to the fresh home dashboard
-        router.replace('/dashboard');
+        router.replace('/crmdashboard');
       } else {
         // If not logged in, drop them gracefully onto your entry screen
-        router.replace('/(tabs)');
+        router.replace('/dashboard');
       }
     }
   }, [isInitialized, isLoading, sessionData]);
@@ -74,8 +74,10 @@ function RootLayoutContent() {
 
   return (
     <Stack>
+      <Stack.Screen name="index" options={{ headerShown: false }} /> 
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      {/* <Stack.Screen name="login" options={{ headerShown: false }} /> */}
+      <Stack.Screen name="(crm)" options={{ headerShown: false }} />
+      
       <Stack.Screen name="+not-found" />
     </Stack>
   );

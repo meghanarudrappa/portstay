@@ -79,6 +79,7 @@ export function MainStackLayout() {
                         },
                     }}
                 >
+                    
                     <Stack.Screen name="dashboard" />
                     <Stack.Screen name="attendance" />
                     <Stack.Screen name="payslip" />

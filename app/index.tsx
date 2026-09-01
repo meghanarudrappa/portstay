@@ -24,7 +24,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSession } from '@/context/ContextSession';
 import { StatusBar } from 'expo-status-bar';
 import { useDoubleTapToExit } from '@/hooks/useDoubleTapToExit';
-import { API_BASE_URL } from '../config/api'; // Adjust the relative folder path as needed
+import { API_BASE_URL } from './config/api'; // Adjust the relative folder path as needed
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -88,23 +88,71 @@ export default function LoginScreen() {
       });
 
       const data = await passwordRes.json();
+      console.log("LOGIN RESPONSE DATA:", JSON.stringify(data, null, 2));
       if (response.ok) {
-        if (data.validated) {
-          try {
-            await fetch(`${API_BASE_URL}/login-user-mobile?username=${encodeURIComponent(email)}`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-            });
-            getSessionDetails();
-            setShowSuccessPopup(true);
+        // if (data.validated) {
+        //   try {
+        //     await fetch(`${API_BASE_URL}/login-user-mobile?username=${encodeURIComponent(email)}`, {
+        //       method: "POST",
+        //       headers: { "Content-Type": "application/json" },
+        //     });
+        //     getSessionDetails();
+        //     setShowSuccessPopup(true);
             
-            setTimeout(() => {
-              setShowSuccessPopup(false);
-              router.replace('/dashboard'); 
-            }, 1500);
-          } catch (err) {
-            Alert.alert("Error", "Failed to login. Please try again.");
-          }
+        //     // setTimeout(() => {
+        //     //   setShowSuccessPopup(false);
+        //     //   router.replace('/dashboard'); 
+        //     // }, 1500);
+        //     setTimeout(() => {
+        //       setShowSuccessPopup(false);
+
+        //       // Read module or role flag returned by /login-user endpoint
+        //       const userModule = data.userType || data.role || data.module;
+
+        //       if (userModule === 'CRM') {
+        //         router.replace('/crmdashboard'); // Redirect CRM users to new landing screen
+        //       } else {
+        //         router.replace('/dashboard');    // Preserves default HRMS routing
+        //       }
+        //     }, 1500);
+        //   } catch (err) {
+        //     Alert.alert("Error", "Failed to login. Please try again.");
+        //   }
+        if (data.validated) {
+  try {
+    // 1. Fetch mobile login/session data
+    const mobileRes = await fetch(
+      `${API_BASE_URL}/login-user-mobile?username=${encodeURIComponent(email)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    // 2. Parse JSON response directly
+    const sessionData = await mobileRes.json();
+    console.log("sessionData ",sessionData);
+    await getSessionDetails();
+
+    setShowSuccessPopup(true);
+
+    setTimeout(() => {
+      setShowSuccessPopup(false);
+
+      // 3. Check 'aboutTeam' property returned by backend
+      const team = sessionData?.service;
+
+      if (team === 'CRM') {
+        router.replace('/(crm)/crmdashboard'); // Routes to app/crmdashboard.tsx
+      } else {
+        router.replace('/(tabs)/dashboard'); // Routes to HRMS dashboard
+      }
+    }, 1500);
+
+  } catch (err) {
+    Alert.alert("Error", "Failed to login. Please try again.");
+  }
+
         } else {
           Alert.alert("Error", "Wrong password!!");
         }
@@ -287,7 +335,7 @@ export default function LoginScreen() {
         {/* The background is now cleanly anchored utilizing standard CSS properties for web */}
         {/* FIX: Typecast inline as ViewStyle to satisfy the internal wrapper's prop requirements */}
         <ImageBackground 
-          source={require('./../../assets/images/login-Homepage.png')}
+          source={require('@/assets/images/login-Homepage.png')}
           style={styles.fixedAbsoluteBackground as ViewStyle}
           resizeMode="cover" 
         />

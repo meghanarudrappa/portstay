@@ -32,7 +32,7 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import { Picker } from '@react-native-picker/picker';
 import { useSession } from '@/context/ContextSession';
 import * as ImagePicker from 'expo-image-picker';
-import { API_BASE_URL } from '../../config/api'; 
+import { API_BASE_URL } from '@/app/config/api'; 
 
 const BASE_URL = `${API_BASE_URL}`;
 const DEFAULT_AVATAR = `${BASE_URL}/resources/img/Profile/default_user_image.png`;

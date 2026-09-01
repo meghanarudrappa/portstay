@@ -646,7 +646,84 @@ processedDatesMap.forEach((realEntry, dateKey) => {
                 <Text style={styles.menuItemLabelText}>Expenses</Text>
               </TouchableOpacity>
 
+            
               
+             {/* 1. CRM Main Menu Button */}
+<TouchableOpacity 
+  style={[styles.menuItemRow, expandedMenus.crm && styles.activeActiveMenuBg]} 
+  onPress={() => toggleSubmenu('crm')}
+>
+  <Feather name="grid" size={18} color="#ffffff" style={styles.menuIconPadding} />
+  <Text style={styles.menuItemLabelText}>CRM</Text>
+  <Feather name={expandedMenus.crm ? "chevron-up" : "chevron-down"} size={16} color="#ffffff" />
+</TouchableOpacity>
+
+{/* CRM Nested Block */}
+{expandedMenus.crm && (
+  <View style={styles.nestedSubmenuBlock}>
+
+    {/* 2. Sales Nested Submenu Button */}
+    <TouchableOpacity 
+      style={[styles.subMenuItemRow, { justifyContent: 'space-between' }]} 
+      onPress={() => toggleSubmenu('sales')}
+    >
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        <Feather name="trending-up" size={14} color="#ffffff" style={{ marginRight: 8 }} />
+        <Text style={styles.subMenuItemLabelText}>Sales</Text>
+      </View>
+      <Feather name={expandedMenus.sales ? "chevron-up" : "chevron-down"} size={14} color="#ffffff" />
+    </TouchableOpacity>
+
+    {/* Sales Submenu Items (Leads, Accounts, Contacts, Deals) */}
+    {expandedMenus.sales && (
+      <View style={{ paddingLeft: 16 }}>
+        <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/leads")}>
+          <Feather name="filter" size={12} color="#ffffff" style={{ marginRight: 8 }} />
+          <Text style={styles.subMenuItemLabelText}>Leads</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/accounts/AccountsModule")}>
+          <Feather name="briefcase" size={12} color="#ffffff" style={{ marginRight: 8 }} />
+          <Text style={styles.subMenuItemLabelText}>Accounts</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/contacts")}>
+          <Feather name="users" size={12} color="#ffffff" style={{ marginRight: 8 }} />
+          <Text style={styles.subMenuItemLabelText}>Contacts</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/deals")}>
+          <Feather name="dollar-sign" size={12} color="#ffffff" style={{ marginRight: 8 }} />
+          <Text style={styles.subMenuItemLabelText}>Deals</Text>
+        </TouchableOpacity>
+      </View>
+    )}
+
+    {/* Other CRM Submenu Items */}
+    <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/calls")}>
+      <Feather name="phone-call" size={14} color="#ffffff" style={{ marginRight: 8 }} />
+      <Text style={styles.subMenuItemLabelText}>Calls</Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/tasks")}>
+      <Feather name="check-square" size={14} color="#ffffff" style={{ marginRight: 8 }} />
+      <Text style={styles.subMenuItemLabelText}>Tasks</Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/calendar")}>
+      <Feather name="calendar" size={14} color="#ffffff" style={{ marginRight: 8 }} />
+      <Text style={styles.subMenuItemLabelText}>Calendar</Text>
+    </TouchableOpacity>
+
+    <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/activities")}>
+      <Feather name="activity" size={14} color="#ffffff" style={{ marginRight: 8 }} />
+      <Text style={styles.subMenuItemLabelText}>Activities</Text>
+    </TouchableOpacity>
+
+ 
+                </View>
+              )}
+
               <TouchableOpacity style={styles.menuItemRow} onPress={() => navigateToRoute("/profile")}>
                 <Feather name="user" size={18} color="#ffffff" style={styles.menuIconPadding} />
                 <Text style={styles.menuItemLabelText}>Profile</Text>

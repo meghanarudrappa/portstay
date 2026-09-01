@@ -161,15 +161,15 @@ export default function LeadsScreen() {
           <View style={styles.activityContainer}>
             <View style={styles.activityItem}>
               <Feather name="phone-call" size={11} color="#0284c7" />
-              <Text style={styles.activityCount}>{item.callCount || item.callsCount || 0}</Text>
+              <Text style={styles.activityCount}>{item.call || item.callsCount || 0}</Text>
             </View>
             <View style={styles.activityItem}>
               <Feather name="video" size={11} color="#7c3aed" />
-              <Text style={styles.activityCount}>{item.meetUpCount || item.videoCallsCount || 0}</Text>
+              <Text style={styles.activityCount}>{item.meeting || item.videoCallsCount || 0}</Text>
             </View>
             <View style={styles.activityItem}>
               <Feather name="mail" size={11} color="#ea580c" />
-              <Text style={styles.activityCount}>{item.emailCount || item.mailsCount || 0}</Text>
+              <Text style={styles.activityCount}>{item.mail || item.mailsCount || 0}</Text>
             </View>
           </View>
         </View>

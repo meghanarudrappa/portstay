@@ -65,7 +65,7 @@ export interface CreateAccountPayload {
   annualRevenue?: string;
   email: string;
   mobileNo?: string;
-  description?: string;
+  summary?: string;
   type: 'Accounts';
   [key: string]: any;
 }

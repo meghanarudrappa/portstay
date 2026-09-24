@@ -13,9 +13,9 @@ import {
   StatusBar,
 } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import { KanbanStage } from '@/types/leads';
+import { KanbanStage } from '@/types/deals';
 import { fetchKanbanData } from '@/app/config/crmService';
-import CreateLeadModal from '@/app/(crm)/leads/CreateLeadModal';
+import CreateDealModal from '@/app/(crm)/deals/CreateDealModal';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 
 // Helper for Initials
@@ -48,9 +48,9 @@ const getStatusBadgeStyle = (status?: string) => {
   return { bg: '#4ade80', text: '#ffffff' };
 };
 
-export default function LeadsScreen() {
+export default function DealsScreen() {
   const router = useRouter();
-  const [leads, setLeads] = useState<any[]>([]);
+  const [deals, setDeals] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -68,28 +68,28 @@ export default function LeadsScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetchKanbanData('Leads');
-      let parsedLeads: any[] = [];
+      const response = await fetchKanbanData('Deals');
+      let parsedDeals: any[] = [];
       if (Array.isArray(response)) {
-        if (response.length > 0 && response[0].leads) {
-          parsedLeads = response.flatMap((stage: KanbanStage) =>
-            (stage.leads || []).map((lead) => ({
-              ...lead,
-              stageLabel: stage.label || lead.status || 'New',
+        if (response.length > 0 && response[0].deals) {
+          parsedDeals = response.flatMap((stage: KanbanStage) =>
+            (stage.deals || []).map((deal) => ({
+              ...deal,
+              stageLabel: stage.label || deal.status || 'New',
               stageColor: stage.color,
             }))
           );
         } else {
-          parsedLeads = response.map((lead: any) => ({
-            ...lead,
-            stageLabel: lead.status || lead.kanbanName || 'New',
-            stageColor: lead.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
+          parsedDeals = response.map((deal: any) => ({
+            ...deal,
+            stageLabel: deal.status || deal.kanbanName || 'New',
+            stageColor: deal.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
           }));
         }
       }
-      setLeads(parsedLeads);
+      setDeals(parsedDeals);
     } catch (error) {
-      console.error('Error fetching leads:', error);
+      console.error('Error fetching deals:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -108,10 +108,10 @@ export default function LeadsScreen() {
   );
 
   // Filter & Search Logic
-  const filteredLeads = useMemo(() => {
-    return leads.filter((lead) => {
+  const filteredDeals = useMemo(() => {
+    return deals.filter((deal) => {
       // Status Filter
-      const displayStatus = lead.status || lead.stageLabel || 'New';
+      const displayStatus = deal.status || deal.stageLabel || 'New';
       if (
         selectedStatusFilter !== 'All' &&
         displayStatus.toLowerCase() !== selectedStatusFilter.toLowerCase()
@@ -122,25 +122,25 @@ export default function LeadsScreen() {
       // Search Query Filter
       if (!searchQuery || searchQuery.trim() === '') return true;
       const query = searchQuery.trim().toLowerCase();
-      const leadName = (
-        lead.contact_Person ||
-        lead.contactName ||
-        lead.name ||
-        lead.title ||
+      const dealName = (
+        deal.contact_Person ||
+        deal.contactName ||
+        deal.name ||
+        deal.title ||
         ''
       ).toLowerCase();
-      const company = (lead.company_Name || lead.companyName || '').toLowerCase();
-      const phone = (lead.phone || '').toLowerCase();
-      return leadName.includes(query) || company.includes(query) || phone.includes(query);
+      const company = (deal.company_Name || deal.companyName || '').toLowerCase();
+      const phone = (deal.phone || '').toLowerCase();
+      return dealName.includes(query) || company.includes(query) || phone.includes(query);
     });
-  }, [leads, searchQuery, selectedStatusFilter]);
+  }, [deals, searchQuery, selectedStatusFilter]);
 
   // Paginated Data Logic
-  const totalPages = Math.ceil(filteredLeads.length / pageSize) || 1;
-  const paginatedLeads = useMemo(() => {
+  const totalPages = Math.ceil(filteredDeals.length / pageSize) || 1;
+  const paginatedDeals = useMemo(() => {
     const startIdx = (currentPage - 1) * pageSize;
-    return filteredLeads.slice(startIdx, startIdx + pageSize);
-  }, [filteredLeads, currentPage, pageSize]);
+    return filteredDeals.slice(startIdx, startIdx + pageSize);
+  }, [filteredDeals, currentPage, pageSize]);
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -148,26 +148,29 @@ export default function LeadsScreen() {
     }
   };
 
-  const getLeadId = (item: any, index: number) => item.crm_Id || item.id || `lead-${index}`;
+  const getDealId = (item: any, index: number) => item.crm_Id || item.id || `deal-${index}`;
 
-  const renderLeadCard = ({ item, index }: { item: any; index: number }) => {
+  const renderDealCard = ({ item, index }: { item: any; index: number }) => {
     const displayName =
-      item.contact_Person || item.contactName || item.name || item.title || 'Unnamed Lead';
+      item.contact_Person || item.contactName || item.name || item.title || 'Unnamed Deal';
     const displayCompany = item.company_Name || item.companyName || '--';
-    const displayStatus = item.status || item.stageLabel || 'New';
+    const displayStatus = item.status || item.stageLabel || item.stage || 'New';
+    const rawDate = item.closedDate || item.closingDate || item.date || item.created_at;
     const subtitle = item.viewedTime
-      ? `Viewed · ${item.viewedTime}`
-      : item.date
-      ? `follow date: ${item.follow_Date||"--"}`
-      : 'Created Recently';
+  ? `Viewed · ${item.viewedTime}`
+  : rawDate
+  ? `deal date: ${rawDate}`
+  : 'Created Recently';
+    const rawAmount = item.amount ?? item.value ?? item.dealValue ?? 0;
+    const dealValue = `$${Number(rawAmount).toLocaleString()}`;
 
     const avatarBg = getAvatarBg(index);
     const avatarTextColor = getAvatarTextColor(index);
     const badgeStyle = getStatusBadgeStyle(displayStatus);
 
     const callsCount = item.scheduleCall || item.callsCount || item.callCount || 0;
-    const meetingsCount = item.meeting || item.videoCallsCount || item.meetUpCount || 0;
-     const mailsCount = item.mail || item.MailsCount || item.mailCount || 0;
+    const meetingsCount = item.schedulemeeting || item.videoCallsCount || 0;
+    const mailCount = item.schedulemail || item.mailCount || 0;
 
     return (
       <TouchableOpacity activeOpacity={0.7} style={styles.cardContainer}>
@@ -188,6 +191,9 @@ export default function LeadsScreen() {
           </Text>
           <Text style={styles.subtitleText} numberOfLines={1}>
             {subtitle}
+          </Text>
+           <Text style={styles.subtitleText} numberOfLines={1}>
+            deal value: {dealValue}
           </Text>
         </View>
 
@@ -219,8 +225,8 @@ export default function LeadsScreen() {
 
             <TouchableOpacity style={styles.actionPill}>
               <Feather name="mail" size={11} color="#2563eb" />
-               <View style={[styles.badgeCircle, { backgroundColor: '#f97316' }]}>
-                <Text style={styles.badgeCircleText}>{mailsCount}</Text>
+              <View style={[styles.badgeCircle, { backgroundColor: '#f97316' }]}>
+                <Text style={styles.badgeCircleText}>{mailCount}</Text>
               </View>
             </TouchableOpacity>
           </View>
@@ -242,8 +248,8 @@ export default function LeadsScreen() {
             <Feather name="arrow-left" size={20} color="#0f172a" />
           </TouchableOpacity>
           <View>
-            <Text style={styles.headerTitle}>Leads</Text>
-            <Text style={styles.headerSubtitle}>Manage your leads and track their progress</Text>
+            <Text style={styles.headerTitle}>Deals</Text>
+            <Text style={styles.headerSubtitle}>Manage your deals and track sales progress</Text>
           </View>
         </View>
 
@@ -267,7 +273,7 @@ export default function LeadsScreen() {
       {/* Functional Filter Bar */}
       {showFilterBar && (
         <View style={styles.filterChipBar}>
-          {['All', 'New', 'Contacted', 'Discussion'].map((filter) => (
+          {['All', 'New', 'Deal Won', 'Deal Lost', 'Negotiation'].map((filter) => (
             <TouchableOpacity
               key={filter}
               style={[
@@ -297,7 +303,7 @@ export default function LeadsScreen() {
         <View style={styles.searchBar}>
           <Feather name="search" size={16} color="#94a3b8" style={{ marginRight: 8 }} />
           <TextInput
-            placeholder="Search leads by name, company, phone..."
+            placeholder="Search deals by name, company, phone..."
             value={searchQuery}
             onChangeText={(text) => {
               setSearchQuery(text);
@@ -401,7 +407,7 @@ export default function LeadsScreen() {
         </View>
 
         <View style={styles.totalBadge}>
-          <Text style={styles.totalBadgeText}>Total : {filteredLeads.length}</Text>
+          <Text style={styles.totalBadgeText}>Total : {filteredDeals.length}</Text>
         </View>
       </View>
 
@@ -412,9 +418,9 @@ export default function LeadsScreen() {
         </View>
       ) : (
         <FlatList
-          data={paginatedLeads}
-          keyExtractor={(item, index) => getLeadId(item, index)}
-          renderItem={renderLeadCard}
+          data={paginatedDeals}
+          keyExtractor={(item, index) => getDealId(item, index)}
+          renderItem={renderDealCard}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -423,15 +429,15 @@ export default function LeadsScreen() {
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Feather name="file-text" size={32} color="#cbd5e1" />
-              <Text style={styles.emptyStateTitle}>No Leads Found</Text>
+              <Text style={styles.emptyStateTitle}>No Deals Found</Text>
               <Text style={styles.emptyStateSub}>
-                No leads match your search query or selected filters.
+                No deals match your search query or selected filters.
               </Text>
               <TouchableOpacity
                 style={styles.addLeadBtn}
                 onPress={() => setIsModalVisible(true)}
               >
-                <Text style={styles.addLeadBtnText}>+ Add Lead</Text>
+                <Text style={styles.addLeadBtnText}>+ Add Deal</Text>
               </TouchableOpacity>
             </View>
           }
@@ -440,7 +446,7 @@ export default function LeadsScreen() {
 
       {/* Modal */}
       <Modal visible={isModalVisible} animationType="slide" transparent>
-        <CreateLeadModal
+        <CreateDealModal
           onClose={() => setIsModalVisible(false)}
           onRefresh={loadData}
         />

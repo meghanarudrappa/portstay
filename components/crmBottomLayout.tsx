@@ -157,7 +157,7 @@ export function CrmBottomLayout({ children }: CrmBottomLayoutProps) {
   // Dedicated 5-item CRM navigation bar
   const crmNavItems: NavigationItem[] = [
     { name: 'CRM', route: '/(crm)/crmdashboard', iconName: 'grid' },
-    { name: 'Home', route: '/(crm)/dashboard', iconName: 'home' },
+    { name: 'Workplace', route: '/(crm)/dashboard', iconName: 'home' },
     { name: 'Attendance', route: '/(crm)/attendance', iconName: 'calendar' },
     { name: 'Payroll', route: '/(crm)/payslip', iconName: 'credit-card' },
     { name: 'Profile', route: '/(crm)/profile', iconName: 'user' },

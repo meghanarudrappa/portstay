@@ -70,106 +70,177 @@ export default function LoginScreen() {
     setShowPassword(!showPassword);
   };
 
-  const handleLogin = async () => {
-    setIsLoggingIn(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/employee-login-mobile?workinguserName=` + email, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const formData = new URLSearchParams();
-      formData.append("username", email);
-      formData.append("password", password);
+  // const handleLogin = async () => {
+  //   setIsLoggingIn(true);
+  //   try {
+  //     const response = await fetch(`${API_BASE_URL}/employee-login-mobile?workinguserName=` + email, {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //     });
+  //     const formData = new URLSearchParams();
+  //     formData.append("username", email);
+  //     formData.append("password", password);
 
-      const passwordRes = await fetch(`${API_BASE_URL}/login-user`, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: formData.toString(),
-      });
+  //     const passwordRes = await fetch(`${API_BASE_URL}/login-user`, {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/x-www-form-urlencoded" },
+  //       body: formData.toString(),
+  //     });
 
-      const data = await passwordRes.json();
-      console.log("LOGIN RESPONSE DATA:", JSON.stringify(data, null, 2));
-      if (response.ok) {
-        // if (data.validated) {
-        //   try {
-        //     await fetch(`${API_BASE_URL}/login-user-mobile?username=${encodeURIComponent(email)}`, {
-        //       method: "POST",
-        //       headers: { "Content-Type": "application/json" },
-        //     });
-        //     getSessionDetails();
-        //     setShowSuccessPopup(true);
+  //     const data = await passwordRes.json();
+  //     console.log("LOGIN RESPONSE DATA:", JSON.stringify(data, null, 2));
+  //     if (response.ok) {
+  //       // if (data.validated) {
+  //       //   try {
+  //       //     await fetch(`${API_BASE_URL}/login-user-mobile?username=${encodeURIComponent(email)}`, {
+  //       //       method: "POST",
+  //       //       headers: { "Content-Type": "application/json" },
+  //       //     });
+  //       //     getSessionDetails();
+  //       //     setShowSuccessPopup(true);
             
-        //     // setTimeout(() => {
-        //     //   setShowSuccessPopup(false);
-        //     //   router.replace('/dashboard'); 
-        //     // }, 1500);
-        //     setTimeout(() => {
-        //       setShowSuccessPopup(false);
+  //       //     // setTimeout(() => {
+  //       //     //   setShowSuccessPopup(false);
+  //       //     //   router.replace('/dashboard'); 
+  //       //     // }, 1500);
+  //       //     setTimeout(() => {
+  //       //       setShowSuccessPopup(false);
 
-        //       // Read module or role flag returned by /login-user endpoint
-        //       const userModule = data.userType || data.role || data.module;
+  //       //       // Read module or role flag returned by /login-user endpoint
+  //       //       const userModule = data.userType || data.role || data.module;
 
-        //       if (userModule === 'CRM') {
-        //         router.replace('/crmdashboard'); // Redirect CRM users to new landing screen
-        //       } else {
-        //         router.replace('/dashboard');    // Preserves default HRMS routing
-        //       }
-        //     }, 1500);
-        //   } catch (err) {
-        //     Alert.alert("Error", "Failed to login. Please try again.");
-        //   }
-        if (data.validated) {
+  //       //       if (userModule === 'CRM') {
+  //       //         router.replace('/crmdashboard'); // Redirect CRM users to new landing screen
+  //       //       } else {
+  //       //         router.replace('/dashboard');    // Preserves default HRMS routing
+  //       //       }
+  //       //     }, 1500);
+  //       //   } catch (err) {
+  //       //     Alert.alert("Error", "Failed to login. Please try again.");
+  //       //   }
+  //       if (data.validated) {
+  // try {
+  //   // 1. Fetch mobile login/session data
+  //   const mobileRes = await fetch(
+  //     `${API_BASE_URL}/login-user-mobile?username=${encodeURIComponent(email)}`,
+  //     {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //     }
+  //   );
+
+  //   // 2. Parse JSON response directly
+  //   const sessionData = await mobileRes.json();
+  //   console.log("sessionData ",sessionData);
+  //   await getSessionDetails();
+
+  //   setShowSuccessPopup(true);
+
+  //   setTimeout(() => {
+  //     setShowSuccessPopup(false);
+
+  //     // 3. Check 'aboutTeam' property returned by backend
+  //     const team = sessionData?.service;
+
+  //     if (team === 'CRM') {
+  //       router.replace('/(crm)/crmdashboard'); // Routes to app/crmdashboard.tsx
+  //     } else {
+  //       router.replace('/(tabs)/dashboard'); // Routes to HRMS dashboard
+  //     }
+  //   }, 1500);
+
+  // } catch (err) {
+  //   Alert.alert("Error", "Failed to login. Please try again.");
+  // }
+
+  //       } else {
+  //         Alert.alert("Error", "Wrong password!!");
+  //       }
+  //     } else {
+  //       Alert.alert("Error", "Wrong email!!");
+  //     }
+  //   }
+  //   //  catch (error) {
+  //     // Alert.alert("Error", "Failed to login. Please try again.");
+  //     catch (error: any) {
+  //     // CHANGE THIS LINE TEMPORARILY:
+  //     Alert.alert("Actual Network Error", error?.message || JSON.stringify(error));
+  //   } finally {
+  //     setIsLoggingIn(false);
+  //   }
+  // };
+
+  const handleLogin = async () => {
+  setIsLoggingIn(true);
   try {
-    // 1. Fetch mobile login/session data
-    const mobileRes = await fetch(
-      `${API_BASE_URL}/login-user-mobile?username=${encodeURIComponent(email)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      }
-    );
+    // 1. Initial employee API call
+    const response = await fetch(`${API_BASE_URL}/employee-login-mobile?workinguserName=` + encodeURIComponent(email), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+    });
 
-    // 2. Parse JSON response directly
-    const sessionData = await mobileRes.json();
-    console.log("sessionData ",sessionData);
-    await getSessionDetails();
+    const formData = new URLSearchParams();
+    formData.append("username", email);
+    formData.append("password", password);
 
-    setShowSuccessPopup(true);
+    // 2. Validate credentials
+    const passwordRes = await fetch(`${API_BASE_URL}/login-user`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: formData.toString(),
+    });
 
-    setTimeout(() => {
-      setShowSuccessPopup(false);
+    const data = await passwordRes.json();
+    console.log("LOGIN RESPONSE DATA:", JSON.stringify(data, null, 2));
 
-      // 3. Check 'aboutTeam' property returned by backend
-      const team = sessionData?.service;
-
-      if (team === 'CRM') {
-        router.replace('/(crm)/crmdashboard'); // Routes to app/crmdashboard.tsx
-      } else {
-        router.replace('/(tabs)/dashboard'); // Routes to HRMS dashboard
-      }
-    }, 1500);
-
-  } catch (err) {
-    Alert.alert("Error", "Failed to login. Please try again.");
-  }
-
-        } else {
-          Alert.alert("Error", "Wrong password!!");
+    if (response.ok && data.validated) {
+      // 3. Fetch mobile session details
+      const mobileRes = await fetch(
+        `${API_BASE_URL}/login-user-mobile?username=${encodeURIComponent(email)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
         }
-      } else {
-        Alert.alert("Error", "Wrong email!!");
-      }
-    }
-    //  catch (error) {
-      // Alert.alert("Error", "Failed to login. Please try again.");
-      catch (error: any) {
-      // CHANGE THIS LINE TEMPORARILY:
-      Alert.alert("Actual Network Error", error?.message || JSON.stringify(error));
-    } finally {
-      setIsLoggingIn(false);
-    }
-  };
+      );
+      console.log("mobileRes:",mobileRes)
 
+      const sessionData = await mobileRes.json();
+      console.log("sessionData: ", sessionData);
+
+      // Turn off initial loading BEFORE showing success modal
+      setIsLoggingIn(false);
+      setShowSuccessPopup(true);
+
+      // Synchronize session state
+      await getSessionDetails();
+
+      // Check role directly from response (fallback to main login response if undefined)
+      const userTeam = sessionData?.service || data?.userType || data?.role;
+
+      setTimeout(() => {
+        setShowSuccessPopup(false);
+
+        // Strict route check
+        if (userTeam === 'CRM') {
+          router.replace('/(crm)/crmdashboard');
+        } else {
+          router.replace('/(tabs)/dashboard');
+        }
+      }, 1500);
+
+    } else if (!response.ok) {
+      setIsLoggingIn(false);
+      Alert.alert("Error", "Wrong email or user not found!!");
+    } else {
+      setIsLoggingIn(false);
+      Alert.alert("Error", "Wrong password!!");
+    }
+  } catch (error: any) {
+    setIsLoggingIn(false);
+    Alert.alert("Network Error", error?.message || "Failed to login. Please try again.");
+  }
+};
+  
   const handleForgotPasswordSubmit = () => {
     if (!forgotEmail) {
       Alert.alert("Error", "Please enter your email address.");

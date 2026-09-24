@@ -8,11 +8,11 @@ export default function StackLayout() {
   const colorScheme = useColorScheme();
 
   return (
-    <View style={{ flex: 1, marginTop: 30 }}>
+    <View style={{ flex: 1, marginTop: 0 }}>
       
       <Stack
         screenOptions={{
-          headerStyle: {
+            headerStyle: {
             backgroundColor: Colors[colorScheme ?? 'light'].background,
           },
           headerTintColor: Colors[colorScheme ?? 'light'].text,

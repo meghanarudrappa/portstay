@@ -13,14 +13,14 @@ import {
   StatusBar,
 } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
-import { KanbanStage } from '@/types/leads';
+import { KanbanStage } from '@/types/contacts';
 import { fetchKanbanData } from '@/app/config/crmService';
-import CreateLeadModal from '@/app/(crm)/leads/CreateLeadModal';
+import CreateContactModal from '@/app/(crm)/contacts/CreateContactModal';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 
 // Helper for Initials
 const getInitials = (name: string): string => {
-  if (!name) return 'LD';
+  if (!name) return 'CT';
   const parts = name.trim().split(' ');
   if (parts.length >= 2) {
     return (parts[0][0] + parts[1][0]).toUpperCase();
@@ -28,7 +28,7 @@ const getInitials = (name: string): string => {
   return name.substring(0, 2).toUpperCase();
 };
 
-// Helper for Avatar Colors
+// Helper for Avatar Background Colors
 const getAvatarBg = (index: number): string => {
   const colors = ['#fce7f3', '#e0e7ff', '#fef3c7', '#dcfce7', '#e0f2fe', '#f3e8ff'];
   return colors[index % colors.length];
@@ -42,15 +42,15 @@ const getAvatarTextColor = (index: number): string => {
 // Helper for Status Badge Styling
 const getStatusBadgeStyle = (status?: string) => {
   const s = (status || '').toLowerCase();
+  if (s.includes('not qualified') || s.includes('lost')) return { bg: '#f97316', text: '#ffffff' };
   if (s.includes('contact')) return { bg: '#2dd4bf', text: '#ffffff' };
   if (s.includes('discussion') || s.includes('negotiation')) return { bg: '#818cf8', text: '#ffffff' };
-  if (s.includes('qualified') || s.includes('won')) return { bg: '#4ade80', text: '#ffffff' };
-  return { bg: '#4ade80', text: '#ffffff' };
+  return { bg: '#2563eb', text: '#ffffff' }; // Default Active status
 };
 
-export default function LeadsScreen() {
+export default function ContactsScreen() {
   const router = useRouter();
-  const [leads, setLeads] = useState<any[]>([]);
+  const [contacts, setContacts] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -68,28 +68,28 @@ export default function LeadsScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetchKanbanData('Leads');
-      let parsedLeads: any[] = [];
+      const response = await fetchKanbanData('Contacts');
+      let parsedContacts: any[] = [];
       if (Array.isArray(response)) {
-        if (response.length > 0 && response[0].leads) {
-          parsedLeads = response.flatMap((stage: KanbanStage) =>
-            (stage.leads || []).map((lead) => ({
-              ...lead,
-              stageLabel: stage.label || lead.status || 'New',
+        if (response.length > 0 && response[0].contacts) {
+          parsedContacts = response.flatMap((stage: KanbanStage) =>
+            (stage.contacts || []).map((contact) => ({
+              ...contact,
+              stageLabel: stage.label || contact.status || 'New',
               stageColor: stage.color,
             }))
           );
         } else {
-          parsedLeads = response.map((lead: any) => ({
-            ...lead,
-            stageLabel: lead.status || lead.kanbanName || 'New',
-            stageColor: lead.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
+          parsedContacts = response.map((contact: any) => ({
+            ...contact,
+            stageLabel: contact.status || contact.kanbanName || 'New',
+            stageColor: contact.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
           }));
         }
       }
-      setLeads(parsedLeads);
+      setContacts(parsedContacts);
     } catch (error) {
-      console.error('Error fetching leads:', error);
+      console.error('Error fetching contacts:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -108,10 +108,10 @@ export default function LeadsScreen() {
   );
 
   // Filter & Search Logic
-  const filteredLeads = useMemo(() => {
-    return leads.filter((lead) => {
+  const filteredContacts = useMemo(() => {
+    return contacts.filter((contact) => {
       // Status Filter
-      const displayStatus = lead.status || lead.stageLabel || 'New';
+      const displayStatus = contact.status || contact.stageLabel || 'New';
       if (
         selectedStatusFilter !== 'All' &&
         displayStatus.toLowerCase() !== selectedStatusFilter.toLowerCase()
@@ -122,25 +122,25 @@ export default function LeadsScreen() {
       // Search Query Filter
       if (!searchQuery || searchQuery.trim() === '') return true;
       const query = searchQuery.trim().toLowerCase();
-      const leadName = (
-        lead.contact_Person ||
-        lead.contactName ||
-        lead.name ||
-        lead.title ||
+      const contactName = (
+        contact.contact_Person ||
+        contact.contactName ||
+        contact.name ||
+        contact.title ||
         ''
       ).toLowerCase();
-      const company = (lead.company_Name || lead.companyName || '').toLowerCase();
-      const phone = (lead.phone || '').toLowerCase();
-      return leadName.includes(query) || company.includes(query) || phone.includes(query);
+      const company = (contact.company_Name || contact.companyName || '').toLowerCase();
+      const phone = (contact.phone || '').toLowerCase();
+      return contactName.includes(query) || company.includes(query) || phone.includes(query);
     });
-  }, [leads, searchQuery, selectedStatusFilter]);
+  }, [contacts, searchQuery, selectedStatusFilter]);
 
   // Paginated Data Logic
-  const totalPages = Math.ceil(filteredLeads.length / pageSize) || 1;
-  const paginatedLeads = useMemo(() => {
+  const totalPages = Math.ceil(filteredContacts.length / pageSize) || 1;
+  const paginatedContacts = useMemo(() => {
     const startIdx = (currentPage - 1) * pageSize;
-    return filteredLeads.slice(startIdx, startIdx + pageSize);
-  }, [filteredLeads, currentPage, pageSize]);
+    return filteredContacts.slice(startIdx, startIdx + pageSize);
+  }, [filteredContacts, currentPage, pageSize]);
 
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -148,18 +148,18 @@ export default function LeadsScreen() {
     }
   };
 
-  const getLeadId = (item: any, index: number) => item.crm_Id || item.id || `lead-${index}`;
+  const getContactId = (item: any, index: number) => item.crm_Id || item.id || `contact-${index}`;
 
-  const renderLeadCard = ({ item, index }: { item: any; index: number }) => {
+  const renderContactCard = ({ item, index }: { item: any; index: number }) => {
     const displayName =
-      item.contact_Person || item.contactName || item.name || item.title || 'Unnamed Lead';
+      item.contact_Person || item.contactName || item.name || item.title || 'Unnamed Contact';
     const displayCompany = item.company_Name || item.companyName || '--';
     const displayStatus = item.status || item.stageLabel || 'New';
-    const subtitle = item.viewedTime
-      ? `Viewed · ${item.viewedTime}`
-      : item.date
-      ? `follow date: ${item.follow_Date||"--"}`
-      : 'Created Recently';
+    const follow_Date = item.follow_Date
+      ? `Follow-up : ${item.follow_Date}`
+      : item.viewedTime
+      ? `Viewed : ${item.viewedTime}`
+      : `follow date: · ${item.follow_Date || '--'}`;
 
     const avatarBg = getAvatarBg(index);
     const avatarTextColor = getAvatarTextColor(index);
@@ -167,7 +167,7 @@ export default function LeadsScreen() {
 
     const callsCount = item.scheduleCall || item.callsCount || item.callCount || 0;
     const meetingsCount = item.meeting || item.videoCallsCount || item.meetUpCount || 0;
-     const mailsCount = item.mail || item.MailsCount || item.mailCount || 0;
+    const mailsCount = item.mail || item.MailsCount || item.mailUpCount || 0;
 
     return (
       <TouchableOpacity activeOpacity={0.7} style={styles.cardContainer}>
@@ -180,14 +180,14 @@ export default function LeadsScreen() {
 
         {/* Center Content */}
         <View style={styles.cardMain}>
-          <Text style={styles.leadName} numberOfLines={1}>
+          <Text style={styles.contactName} numberOfLines={1}>
             {displayName}
           </Text>
           <Text style={styles.companyName} numberOfLines={1}>
-          Company Name : {displayCompany}
+           Company Name: {displayCompany}
           </Text>
           <Text style={styles.subtitleText} numberOfLines={1}>
-            {subtitle}
+            {follow_Date}
           </Text>
         </View>
 
@@ -237,13 +237,12 @@ export default function LeadsScreen() {
       {/* Top Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          {/* Functional Back Arrow */}
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
             <Feather name="arrow-left" size={20} color="#0f172a" />
           </TouchableOpacity>
           <View>
-            <Text style={styles.headerTitle}>Leads</Text>
-            <Text style={styles.headerSubtitle}>Manage your leads and track their progress</Text>
+            <Text style={styles.headerTitle}>Contacts</Text>
+            <Text style={styles.headerSubtitle}>Manage contacts and communication details</Text>
           </View>
         </View>
 
@@ -257,7 +256,7 @@ export default function LeadsScreen() {
             <View style={styles.filterDot} />
           </TouchableOpacity>
 
-          {/* + Create Button placed in header right */}
+          {/* + Create Button */}
           <TouchableOpacity style={styles.createButton} onPress={() => setIsModalVisible(true)}>
             <Text style={styles.createBtnText}>+ Create</Text>
           </TouchableOpacity>
@@ -267,7 +266,7 @@ export default function LeadsScreen() {
       {/* Functional Filter Bar */}
       {showFilterBar && (
         <View style={styles.filterChipBar}>
-          {['All', 'New', 'Contacted', 'Discussion'].map((filter) => (
+          {['All', 'New', 'Contacted', 'Not Qualified'].map((filter) => (
             <TouchableOpacity
               key={filter}
               style={[
@@ -292,12 +291,12 @@ export default function LeadsScreen() {
         </View>
       )}
 
-      {/* Full-width Search Bar replacing Phone/Call controls */}
+      {/* Full-width Search Bar */}
       <View style={styles.searchSection}>
         <View style={styles.searchBar}>
           <Feather name="search" size={16} color="#94a3b8" style={{ marginRight: 8 }} />
           <TextInput
-            placeholder="Search leads by name, company, phone..."
+            placeholder="Search contacts by name, company, phone..."
             value={searchQuery}
             onChangeText={(text) => {
               setSearchQuery(text);
@@ -325,7 +324,7 @@ export default function LeadsScreen() {
             <Feather name="chevron-down" size={12} color="#475569" />
           </TouchableOpacity>
 
-          {/* Page Size Dropdown Options */}
+          {/* Page Size Options Menu */}
           {showPageSizeMenu && (
             <View style={styles.dropdownMenu}>
               {[25, 50, 100].map((size) => (
@@ -352,7 +351,7 @@ export default function LeadsScreen() {
           )}
         </View>
 
-        {/* Dynamic Page Buttons (1, 2, 3...) */}
+        {/* Dynamic Page Navigation */}
         <View style={styles.pagePills}>
           <TouchableOpacity
             style={styles.arrowPageBtn}
@@ -401,20 +400,20 @@ export default function LeadsScreen() {
         </View>
 
         <View style={styles.totalBadge}>
-          <Text style={styles.totalBadgeText}>Total : {filteredLeads.length}</Text>
+          <Text style={styles.totalBadgeText}>Total : {filteredContacts.length}</Text>
         </View>
       </View>
 
-      {/* Main Cards List */}
+      {/* Main Contact Card List */}
       {loading ? (
         <View style={styles.loaderContainer}>
           <ActivityIndicator size="large" color="#2563eb" />
         </View>
       ) : (
         <FlatList
-          data={paginatedLeads}
-          keyExtractor={(item, index) => getLeadId(item, index)}
-          renderItem={renderLeadCard}
+          data={paginatedContacts}
+          keyExtractor={(item, index) => getContactId(item, index)}
+          renderItem={renderContactCard}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           refreshControl={
@@ -423,15 +422,15 @@ export default function LeadsScreen() {
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <Feather name="file-text" size={32} color="#cbd5e1" />
-              <Text style={styles.emptyStateTitle}>No Leads Found</Text>
+              <Text style={styles.emptyStateTitle}>No Contacts Found</Text>
               <Text style={styles.emptyStateSub}>
-                No leads match your search query or selected filters.
+                No contacts match your search query or selected filters.
               </Text>
               <TouchableOpacity
-                style={styles.addLeadBtn}
+                style={styles.addContactBtn}
                 onPress={() => setIsModalVisible(true)}
               >
-                <Text style={styles.addLeadBtnText}>+ Add Lead</Text>
+                <Text style={styles.addContactBtnText}>+ Add Contact</Text>
               </TouchableOpacity>
             </View>
           }
@@ -440,7 +439,7 @@ export default function LeadsScreen() {
 
       {/* Modal */}
       <Modal visible={isModalVisible} animationType="slide" transparent>
-        <CreateLeadModal
+        <CreateContactModal
           onClose={() => setIsModalVisible(false)}
           onRefresh={loadData}
         />
@@ -457,6 +456,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
+     paddingLeft:4,
     paddingTop: 12,
     paddingBottom: 8,
     alignItems: 'center',
@@ -505,7 +505,7 @@ const styles = StyleSheet.create({
   filterChipText: { fontSize: 11, color: '#475569', fontWeight: '500' },
   filterChipTextActive: { color: '#ffffff', fontWeight: '700' },
 
-  /* Full-width Search Section */
+  /* Search Section */
   searchSection: {
     paddingHorizontal: 16,
     marginVertical: 8,
@@ -541,7 +541,7 @@ const styles = StyleSheet.create({
   },
   showText: { fontSize: 11, color: '#1e293b', fontWeight: '600', marginRight: 4 },
 
-  /* Dropdown Menu Overlay */
+  /* Dropdown Menu */
   dropdownMenu: {
     position: 'absolute',
     top: 30,
@@ -608,7 +608,7 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontSize: 12, fontWeight: '700' },
   cardMain: { flex: 1, marginRight: 6 },
-  leadName: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+  contactName: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
   companyName: { fontSize: 11, color: '#475569', marginTop: 1 },
   subtitleText: { fontSize: 10, color: '#2563eb', marginTop: 3 },
 
@@ -662,12 +662,12 @@ const styles = StyleSheet.create({
   },
   emptyStateTitle: { fontSize: 14, fontWeight: '700', color: '#334155', marginTop: 8 },
   emptyStateSub: { fontSize: 11, color: '#94a3b8', textAlign: 'center', marginVertical: 4 },
-  addLeadBtn: {
+  addContactBtn: {
     marginTop: 10,
     backgroundColor: '#2563eb',
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 6,
   },
-  addLeadBtnText: { color: '#ffffff', fontSize: 12, fontWeight: '600' },
+  addContactBtnText: { color: '#ffffff', fontSize: 12, fontWeight: '600' },
 });

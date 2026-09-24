@@ -7,6 +7,7 @@ import { format, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns'
 import { router } from "expo-router"
 import LeaveModal from "@/components/attendance/LeaveModal"
 import { API_BASE_URL } from '../../config/api'; 
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type RealEntry = {
   date: string; 
@@ -444,6 +445,7 @@ export default function AttendanceScreen() {
     const isSpecialStatus = item.status === "Absent" || item.status === "Leave" || item.status === "On Leave" || item.status === "Weekend" || item.status === "-"
 
     return (
+      
       <View style={styles.attendanceItem}>
         <View style={styles.dateColumn}>
           <Text style={styles.dayText}>{item.day}</Text>
@@ -549,8 +551,8 @@ export default function AttendanceScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={true} />
+   <SafeAreaView style={{ flex: 1, backgroundColor: "#ffffff" }} edges={['top']}>
+  <View style={styles.container}>
       
       <View style={styles.header}>
         <TouchableOpacity 
@@ -560,7 +562,7 @@ export default function AttendanceScreen() {
           <Feather name="calendar" size={24} color="#1e293b" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Attendance</Text>
-       
+      
       </View>
 
       {isMonthPickerVisible && (
@@ -766,6 +768,7 @@ export default function AttendanceScreen() {
 
      <LeaveModal visible={modalVisible} onClose={() => setModalVisible(false)} />
     </View>
+    </SafeAreaView>
   )
 }
 
@@ -774,6 +777,7 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fafbfe' },
   loadingText: { marginTop: 12, fontSize: 14, color: '#64748b', fontWeight: '600' },
   header: {
+  margin:0,
   flexDirection: "row",
   justifyContent: "center", // Keeps title perfectly centered horizontally
   alignItems: "center",     // Vertically centers items
@@ -1211,7 +1215,7 @@ headerTitle: {
     borderRadius: 2.5,
     marginTop: 3,
   },
- 
+
   // ADD THESE TWO BLOCKS RIGHT HERE:
   pulseRingOuter: {
     position: 'absolute',

@@ -506,7 +506,7 @@ processedDatesMap.forEach((realEntry, dateKey) => {
         <TouchableOpacity style={styles.headerIconButton} onPress={() => setIsSidebarOpen(true)}>
           <Feather name="menu" size={24} color="#1e293b" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Dashboard</Text>
+        <Text style={styles.headerTitle}>Home</Text>
         <View style={styles.headerRightGroup} />
       </View>
 
@@ -645,84 +645,6 @@ processedDatesMap.forEach((realEntry, dateKey) => {
                 <Feather name="file-minus" size={18} color="#ffffff" style={styles.menuIconPadding} />
                 <Text style={styles.menuItemLabelText}>Expenses</Text>
               </TouchableOpacity>
-
-            
-              
-             {/* 1. CRM Main Menu Button */}
-<TouchableOpacity 
-  style={[styles.menuItemRow, expandedMenus.crm && styles.activeActiveMenuBg]} 
-  onPress={() => toggleSubmenu('crm')}
->
-  <Feather name="grid" size={18} color="#ffffff" style={styles.menuIconPadding} />
-  <Text style={styles.menuItemLabelText}>CRM</Text>
-  <Feather name={expandedMenus.crm ? "chevron-up" : "chevron-down"} size={16} color="#ffffff" />
-</TouchableOpacity>
-
-{/* CRM Nested Block */}
-{expandedMenus.crm && (
-  <View style={styles.nestedSubmenuBlock}>
-
-    {/* 2. Sales Nested Submenu Button */}
-    <TouchableOpacity 
-      style={[styles.subMenuItemRow, { justifyContent: 'space-between' }]} 
-      onPress={() => toggleSubmenu('sales')}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-        <Feather name="trending-up" size={14} color="#ffffff" style={{ marginRight: 8 }} />
-        <Text style={styles.subMenuItemLabelText}>Sales</Text>
-      </View>
-      <Feather name={expandedMenus.sales ? "chevron-up" : "chevron-down"} size={14} color="#ffffff" />
-    </TouchableOpacity>
-
-    {/* Sales Submenu Items (Leads, Accounts, Contacts, Deals) */}
-    {expandedMenus.sales && (
-      <View style={{ paddingLeft: 16 }}>
-        <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/leads")}>
-          <Feather name="filter" size={12} color="#ffffff" style={{ marginRight: 8 }} />
-          <Text style={styles.subMenuItemLabelText}>Leads</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/accounts/AccountsModule")}>
-          <Feather name="briefcase" size={12} color="#ffffff" style={{ marginRight: 8 }} />
-          <Text style={styles.subMenuItemLabelText}>Accounts</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/contacts")}>
-          <Feather name="users" size={12} color="#ffffff" style={{ marginRight: 8 }} />
-          <Text style={styles.subMenuItemLabelText}>Contacts</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/deals")}>
-          <Feather name="dollar-sign" size={12} color="#ffffff" style={{ marginRight: 8 }} />
-          <Text style={styles.subMenuItemLabelText}>Deals</Text>
-        </TouchableOpacity>
-      </View>
-    )}
-
-    {/* Other CRM Submenu Items */}
-    <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/calls")}>
-      <Feather name="phone-call" size={14} color="#ffffff" style={{ marginRight: 8 }} />
-      <Text style={styles.subMenuItemLabelText}>Calls</Text>
-    </TouchableOpacity>
-
-    <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/tasks")}>
-      <Feather name="check-square" size={14} color="#ffffff" style={{ marginRight: 8 }} />
-      <Text style={styles.subMenuItemLabelText}>Tasks</Text>
-    </TouchableOpacity>
-
-    <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/calendar")}>
-      <Feather name="calendar" size={14} color="#ffffff" style={{ marginRight: 8 }} />
-      <Text style={styles.subMenuItemLabelText}>Calendar</Text>
-    </TouchableOpacity>
-
-    <TouchableOpacity style={styles.subMenuItemRow} onPress={() => navigateToRoute("/(crm)/activities")}>
-      <Feather name="activity" size={14} color="#ffffff" style={{ marginRight: 8 }} />
-      <Text style={styles.subMenuItemLabelText}>Activities</Text>
-    </TouchableOpacity>
-
- 
-                </View>
-              )}
 
               <TouchableOpacity style={styles.menuItemRow} onPress={() => navigateToRoute("/profile")}>
                 <Feather name="user" size={18} color="#ffffff" style={styles.menuIconPadding} />
@@ -1071,14 +993,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
  drawerContentContainer: {
+  flex:1,
   position: "absolute", // 👈 Locks the container into absolute coordinates
   left: 0,              // 👈 Forces the drawer to snap to the left edge
   top: 0,               // 👈 Align to the top border of the screen
   width: SCREEN_WIDTH * 0.78,
+  maxWidth: 300,
   height: "100%",
   backgroundColor: "#0a257a", 
   paddingTop: Platform.OS === "ios" ? 50 : 20,
   paddingHorizontal: 16,
+  
 },
   drawerBrandSection: {
     paddingVertical: 16,
@@ -1102,6 +1027,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   menuItemRow: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 14,
@@ -1128,14 +1054,18 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
   },
   subMenuItemRow: {
+    flex:1,
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: 12,
     paddingHorizontal: 16,
+    width:"100%",
   },
   subMenuItemLabelText: {
+    flex:1,
     color: "#f1f5f9",
     fontSize: 14,
+    
   },
   /* --- MAIN CONTENT STYLES --- */
   contentScroll: {
@@ -1252,10 +1182,12 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   logGridRow: {
+    flex:1,
     flexDirection: "row",
     flexWrap: "wrap",
   },
   logDetailBlockCell: {
+    flex:1,
     width: "50%",
     padding: 8,
     alignItems: "center",
@@ -1267,16 +1199,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 4,
+    
   },
   logMetaLabel: {
     fontSize: 11,
     color: "#64748b",
     marginBottom: 2,
+    width:"100%",
+    
   },
   logMetaValue: {
     fontSize: 13,
     fontWeight: "600",
     color: "#1e293b",
+     width:"100%"
+     
   },
   chartFlexPanelCard: {
     backgroundColor: "#ffffff",

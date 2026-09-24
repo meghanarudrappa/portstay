@@ -31,7 +31,7 @@ export function MainStackLayout() {
 
     const navigationItems: { name: string; route: RouteType; iconName: keyof typeof Feather.glyphMap; isCenter?: boolean }[] = [
         {
-            name: 'Home',
+            name: 'Workplace',
             route: '/(tabs)/dashboard',
             iconName: 'home',
         },

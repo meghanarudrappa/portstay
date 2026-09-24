@@ -506,7 +506,7 @@ processedDatesMap.forEach((realEntry, dateKey) => {
         <TouchableOpacity style={styles.headerIconButton} onPress={() => setIsSidebarOpen(true)}>
           <Feather name="menu" size={24} color="#1e293b" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Dashboard</Text>
+        <Text style={styles.headerTitle}>Home</Text>
         <View style={styles.headerRightGroup} />
       </View>
 
@@ -747,7 +747,7 @@ processedDatesMap.forEach((realEntry, dateKey) => {
               <View style={[styles.logIconWrapper, { backgroundColor: '#e6f4ea' }]}>
                 <Feather name="check-circle" size={16} color="#10b981" />
               </View>
-              <Text style={styles.logMetaLabel}>Check In</Text>
+              <Text style={styles.logMetaLabel}>Check In </Text>
               <Text style={styles.logMetaValue}>{data.todayLog.checkIn}</Text>
             </View>
 
@@ -1057,6 +1057,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   subMenuItemLabelText: {
+    flex:1,
     color: "#f1f5f9",
     fontSize: 14,
   },
@@ -1177,13 +1178,17 @@ const styles = StyleSheet.create({
   logGridRow: {
     flexDirection: "row",
     flexWrap: "wrap",
+    
   },
   logDetailBlockCell: {
+     flex:1,
     width: "50%",
     padding: 8,
     alignItems: "center",
+    
   },
   logIconWrapper: {
+   
     width: 28,
     height: 28,
     borderRadius: 14,
@@ -1192,14 +1197,18 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   logMetaLabel: {
-    fontSize: 11,
+    flex:1,
+    fontSize: 12,
     color: "#64748b",
     marginBottom: 2,
+    width: "100%",
   },
   logMetaValue: {
+    flex:1,
     fontSize: 13,
     fontWeight: "600",
     color: "#1e293b",
+    width: "100%",
   },
   chartFlexPanelCard: {
     backgroundColor: "#ffffff",

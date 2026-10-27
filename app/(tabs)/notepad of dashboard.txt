@@ -1,0 +1,4595 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Platform, Alert } from "react-native"
+import { Feather } from "@expo/vector-icons"
+import { format, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns'
+import { router } from "expo-router"
+import LeaveModal from "@/components/attendance/LeaveModal"
+import { API_BASE_URL } from '../../config/api'; 
+
+type RealEntry = {
+  date: string; 
+  start_time: string;
+  end_time: string;
+  name: string;
+  username: string;
+  work_hours: string;
+  status?: string;
+  approveStatus?: string;
+}
+
+type LeaveEntry = {
+  startDate: string; 
+  endDate: string;   
+  status: string;    
+}
+
+const generateAttendanceData = (month: number, year: number, realData: RealEntry[], leaveData: any[] = []) => {
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const data = []
+
+  const monthNames = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ]
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const cleanLeaveArray = Array.isArray(leaveData) ? leaveData : [];
+
+  const parseBackendCustomDate = (dateStr: string): Date | null => {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    try {
+      const parts = dateStr.trim().split(/\s+/); 
+      if (parts.length !== 3) return null;
+
+      const day = parseInt(parts[0], 10);
+      const shortMonth = parts[1].toLowerCase();
+      const fullYear = parts[2].length === 2 ? 2000 + parseInt(parts[2], 10) : parseInt(parts[2], 10);
+
+      const monthsMap: Record<string, number> = {
+        jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+        jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11
+      };
+
+      const monthIndex = monthsMap[shortMonth.substring(0, 3)];
+      if (monthIndex === undefined || isNaN(day)) return null;
+
+      return new Date(fullYear, monthIndex, day);
+    } catch (e) {
+      return null;
+    }
+  };
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = new Date(year, month - 1, day)
+    date.setHours(0, 0, 0, 0)
+    const dayOfWeek = date.getDay()
+
+    const abbrevDay = dayNames[dayOfWeek].substring(0, 3)
+    const dateString = `${day} ${monthNames[month - 1].substring(0, 3)}`
+    
+    const paddedDate = `${String(day).padStart(2, "0")}/${String(month).padStart(2, "0")}/${year}`
+    const unpaddedDate = `${day}/${month}/${year}`
+
+    const realEntry = realData.find((item: RealEntry) => 
+      item.date === paddedDate || item.date === unpaddedDate
+    )
+
+    let status = "-"
+    const checkIn = realEntry && realEntry.start_time !== "-" ? realEntry.start_time : ""
+    const checkOut = realEntry && realEntry.end_time !== "-" ? realEntry.end_time : ""
+    const hours = realEntry && realEntry.work_hours !== "-" ? realEntry.work_hours : ""
+    
+    const isDateOnApprovedLeave = cleanLeaveArray.some((item) => {
+      const leaveStatus = (item.status || "").toLowerCase();
+      const isApproved = leaveStatus === "approved" || leaveStatus === "leave" || leaveStatus.includes("approved");
+      
+      if (!isApproved) return false;
+
+      const targetFromStr = item.from_Follow_Date || item.startDate;
+      const targetToStr = item.to_Follow_Date || item.endDate || targetFromStr;
+
+      if (targetFromStr) {
+        const start = parseBackendCustomDate(targetFromStr);
+        const end = targetToStr ? parseBackendCustomDate(targetToStr) : start;
+
+        if (start && end) {
+          start.setHours(0, 0, 0, 0);
+          end.setHours(0, 0, 0, 0);
+          return date >= start && date <= end;
+        }
+      }
+      return false;
+    });
+
+    if (realEntry) {
+      const hasStartTime = realEntry.start_time && realEntry.start_time.trim() !== "-"
+      const hasEndTime = realEntry.end_time && realEntry.end_time.trim() !== "-"
+      const backendStatus = (realEntry.status || realEntry.approveStatus || "").toLowerCase()
+
+      if (backendStatus.includes("leave") || backendStatus.includes("approved") || isDateOnApprovedLeave) {
+        status = "Leave"
+      } else if (backendStatus.includes("absent")) {
+        status = "Absent"
+      } else if (!hasStartTime && !hasEndTime) {
+        status = "Leave"
+      } else {
+        const totalSeconds = parseWorkHoursToSeconds(hours)
+        const totalHours = totalSeconds / 3600
+        status = (totalHours > 0 && totalHours < 4) ? "Half Day" : "Present"
+      }
+    } else {
+      if (isDateOnApprovedLeave) {
+        status = "Leave"; 
+      } else if (date > today) {
+        status = "-"; 
+      } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+        status = "Weekend"; 
+      } else {
+        status = "Absent"; 
+      }
+    }
+
+    data.push({
+      id: `${year}-${month}-${day}`,
+      date: dateString,
+      day: abbrevDay,
+      checkIn,
+      checkOut,
+      status,
+      hours,
+      rawDate: day, 
+      fullDateObject: date 
+    })
+  }
+
+  return data.reverse()
+}
+
+const getStatusConfig = (status: string) => {
+  switch (status) {
+    case "Present": return { color: "#10b981", bg: "#f0fdf4" }
+    case "Absent": return { color: "#ef4444", bg: "#fef2f2" }
+    case "Leave": case "On Leave": return { color: "#6366f1", bg: "#e0e7ff" }
+    case "Half Day": return { color: "#ff7a00", bg: "#fff7ed" }
+    case "Weekend": return { color: "#9ca3af", bg: "#f3f4f6" }
+    default: return { color: "#6b7280", bg: "#f9fafb" }
+  }
+}
+
+const parseWorkHoursToSeconds = (workHoursStr: string): number => {
+  if (!workHoursStr || workHoursStr === "-" || workHoursStr.trim() === "") return 0;
+  
+  if (workHoursStr.includes(":")) {
+    const parts = workHoursStr.split(":").map(Number)
+    if (parts.some(isNaN)) return 0
+    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    if (parts.length === 2) return parts[0] * 3600 + parts[1] * 60
+    return 0
+  }
+
+  let hours = 0, minutes = 0, seconds = 0
+  const lowerStr = workHoursStr.toLowerCase()
+
+  const hourMatch = lowerStr.match(/(\d+)\s*hour/)
+  const minMatch = lowerStr.match(/(\d+)\s*min/)
+  const secMatch = lowerStr.match(/(\d+)\s*sec/)
+
+  if (hourMatch) hours = parseInt(hourMatch[1], 10)
+  if (minMatch) minutes = parseInt(minMatch[1], 10)
+  if (secMatch) seconds = parseInt(secMatch[1], 10)
+
+  return (hours * 3600) + (minutes * 60) + seconds
+}
+
+interface Attend {
+  id: string;
+  checkIn: string;
+  date: string;
+  day: string;
+  checkOut: string;
+  hours: string;
+  status: string;
+  rawDate: number;
+  fullDateObject: Date;
+}
+
+export default function AttendanceScreen() {
+  const monthNamesArray = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+  ]
+
+  const [view, setView] = useState("list")
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1)
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear())
+  const [attendanceData, setAttendanceData] = useState<Attend[]>([])
+  const [empAttendance, setEmpAttendance] = useState<RealEntry[]>([])
+  const [leaveHistory, setLeaveHistory] = useState<any[]>([]) 
+  const [modalVisible, setModalVisible] = useState(false)
+
+  const [isCheckedIn, setIsCheckedIn] = useState(false)
+  const [checkInTimeDisplay, setCheckInTimeDisplay] = useState<string>("--:--:--")
+  const [hasCompletedDay, setHasCompletedDay] = useState(false) 
+  const [secondsElapsed, setSecondsElapsed] = useState(0)
+  const [summary, setSummary] = useState({ present: 0, absent: 0, leave: 0, halfDay: 0 })
+  const [showAllRecords, setShowAllRecords] = useState(false)
+  const [isMonthPickerVisible, setIsMonthPickerVisible] = useState(false)
+
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null
+    if (isCheckedIn) {
+      intervalId = setInterval(() => {
+        setSecondsElapsed((prev) => prev + 1)
+      }, 1000)
+    }
+    return () => {
+      if (intervalId) clearInterval(intervalId)
+    }
+  }, [isCheckedIn])
+
+  const formatWorkDuration = (totalSeconds: number) => {
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const seconds = totalSeconds % 60 
+    return `${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`
+  }
+
+  const formatWorkDurationShort = (totalSeconds: number) => {
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    return `${String(hours).padStart(2, "0")}h ${String(minutes).padStart(2, "0")}m`
+  }
+
+  const handleCheckInOut = async() => {
+    if (hasCompletedDay) {
+      Alert.alert("Attendance Locked", "You have already completed your schedule for today.")
+      return
+    }
+
+    if (!isCheckedIn) {
+      setIsCheckedIn(true)
+      setCheckInTimeDisplay(format(new Date(), "HH:mm"))
+      try {
+        const response = await fetch(`${API_BASE_URL}/mobile-checkin`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        })
+        if (response.ok) {
+          Alert.alert("Success", "Checked-in successfully!")
+          loadSalary()
+        } else {
+          setIsCheckedIn(false)
+          Alert.alert("Error", "Check-in failed on the server side.")
+        }
+      } catch (err) {
+        setIsCheckedIn(false)
+        Alert.alert("Network Error", "Could not connect to the backend server.")
+      }
+    } else {
+      Alert.alert(
+        "Confirm Action",
+        "Do you want to Check-Out?",
+        [
+          { text: "Dismiss", style: "cancel" },
+          { 
+            text: "Yes, Check-Out", 
+            style: "destructive",
+            onPress: async() => {
+              try {
+                const response = await fetch(`${API_BASE_URL}/mobile-checkout`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                })
+                if (response.ok) {
+                  setIsCheckedIn(false);
+                  setHasCompletedDay(true);
+                  Alert.alert("Success", "Checked-out successfully!")
+                  loadSalary()
+                } else {
+                  Alert.alert("Error", "Check-out failed on the server side.")
+                }
+              } catch (err) {
+                Alert.alert("Network Error", "Could not connect to the backend server.")
+              }
+            } 
+          }
+        ]
+      )
+    }
+  }
+
+  const loadSalary = async () => {
+    try {
+      console.log("================ [FETCH START] ================");
+      
+      const response = await fetch(`${API_BASE_URL}/fetch-my-attendance-history-mobile`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      })
+      
+      if (response.ok) {
+        const data = await response.json();
+        const history = data.attendanceHistory || [];
+        setEmpAttendance(history)
+
+        const todayStr = format(new Date(), "dd/MM/yyyy")
+        const todayRecord = history.find((item: RealEntry) => item.date === todayStr);
+
+        if (todayRecord) {
+          const hasStart = todayRecord.start_time && todayRecord.start_time !== "-";
+          const hasEnd = todayRecord.end_time && todayRecord.end_time !== "-";
+
+          if (hasStart) {
+            setCheckInTimeDisplay(todayRecord.start_time);
+            
+            if (!hasEnd || todayRecord.work_hours === "00h 00m" || todayRecord.work_hours === "-") {
+              setIsCheckedIn(true)
+              setHasCompletedDay(false)
+              
+              const now = new Date()
+              const cleanTimeStr = todayRecord.start_time.replace(/[^\d:]/g, '');
+              const timeParts = cleanTimeStr.split(":")
+              
+              let sHour = parseInt(timeParts[0], 10) || 0
+              const sMin = parseInt(timeParts[1], 10) || 0
+              const sSec = parseInt(timeParts[2], 10) || 0
+
+              if (todayRecord.start_time.toLowerCase().includes("pm") && sHour < 12) {
+                sHour += 12;
+              } else if (todayRecord.start_time.toLowerCase().includes("am") && sHour === 12) {
+                sHour = 0;
+              }
+
+              const checkInTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sHour, sMin, sSec);
+              const diffInSeconds = Math.max(0, Math.floor((now.getTime() - checkInTime.getTime()) / 1000));
+              setSecondsElapsed(diffInSeconds)
+            } else {
+              setIsCheckedIn(false)
+              setHasCompletedDay(true)
+              const finalSeconds = parseWorkHoursToSeconds(todayRecord.work_hours);
+              setSecondsElapsed(finalSeconds);
+            }
+          }
+        } else {
+          setIsCheckedIn(false)
+          setHasCompletedDay(false)
+          setSecondsElapsed(0)
+          setCheckInTimeDisplay("--:--:--")
+        }
+      }
+
+      const leaveResponse = await fetch(`${API_BASE_URL}/my-time-off-request-list-mobile`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      })
+      if (leaveResponse.ok) {
+        const leaveData = await leaveResponse.json();
+        const activeLeaves = leaveData.offRequests || []; 
+        setLeaveHistory(activeLeaves);
+      }
+      console.log("================ [FETCH END] ================");
+    } catch (error) {
+      console.log("Error pulling attendance live data records:", error)
+    }
+  }
+
+  useEffect(() => {
+    loadSalary()
+  }, [])
+
+  useEffect(() => {
+    if (!empAttendance.length && !leaveHistory.length) return
+
+    const data = generateAttendanceData(currentMonth, currentYear, empAttendance, leaveHistory)
+    setAttendanceData(data)
+
+    const present = data.filter((item) => item.status === "Present").length
+    const absent = data.filter((item) => item.status === "Absent").length
+    const leave = data.filter((item) => item.status === "Leave" || item.status === "On Leave").length
+    const halfDay = data.filter((item) => item.status === "Half Day").length
+
+    setSummary({ present, absent, leave, halfDay })
+  }, [currentMonth, currentYear, empAttendance, leaveHistory])
+
+  const goToPreviousMonth = () => {
+    setShowAllRecords(false)
+    if (currentMonth === 1) {
+      setCurrentMonth(12)
+      setCurrentYear(currentYear - 1)
+    } else {
+      setCurrentMonth(currentMonth - 1)
+    }
+  }
+
+  const goToNextMonth = () => {
+    setShowAllRecords(false)
+    if (currentMonth === 12) {
+      setCurrentMonth(1)
+      setCurrentYear(currentYear + 1)
+    } else {
+      setCurrentMonth(currentMonth + 1)
+    }
+  }
+
+  const selectDirectMonth = (monthIndex: number) => {
+    setShowAllRecords(false)
+    setCurrentMonth(monthIndex + 1)
+    setIsMonthPickerVisible(false)
+  }
+
+  const getFilteredAttendanceData = () => {
+    if (showAllRecords) {
+      return attendanceData; 
+    }
+
+    const today = new Date()
+    const startOfCurrentWeek = startOfWeek(today, { weekStartsOn: 1 }) 
+    const endOfCurrentWeek = endOfWeek(today, { weekStartsOn: 1 }) 
+
+    return attendanceData.filter((item) => {
+      const isCurrentWeek = isWithinInterval(item.fullDateObject, {
+        start: startOfCurrentWeek,
+        end: endOfCurrentWeek,
+      })
+      return isCurrentWeek && item.status !== "Weekend" && item.status !== "-";
+    })
+  }
+
+  const renderAttendanceItem = ({ item }: { item: Attend }) => {
+    const config = getStatusConfig(item.status)
+    const isSpecialStatus = item.status === "Absent" || item.status === "Leave" || item.status === "On Leave" || item.status === "Weekend" || item.status === "-"
+
+    return (
+      <View style={styles.attendanceItem}>
+        <View style={styles.dateColumn}>
+          <Text style={styles.dayText}>{item.day}</Text>
+          <Text style={styles.dateNumberText}>{item.date.split(' ')[0]}</Text>
+          <Text style={styles.monthText}>{item.date.split(' ')[1]}</Text>
+        </View>
+        
+        <View style={styles.detailsColumn}>
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, { backgroundColor: config.color }]} />
+            <Text style={[styles.statusText, { color: config.color }]}>
+              {item.status === "Leave" ? "On Leave" : item.status}
+            </Text>
+          </View>
+          
+          {!isSpecialStatus && (
+            <Text style={styles.timeRangeText}>
+              {item.checkIn ? item.checkIn : "--:--"} - {item.checkOut ? item.checkOut : "--:--"}
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.hoursColumn}>
+          <Text style={[styles.durationHoursText, isSpecialStatus && { color: '#94a3b8' }]}>
+            {isSpecialStatus ? "-" : (item.hours || "--")}
+          </Text>
+        </View>
+      </View>
+    )
+  }
+
+  const renderCalendarView = () => {
+    const firstDayOfMonth = new Date(currentYear, currentMonth - 1, 1).getDay()
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate()
+
+    const emptyCells = Array.from({ length: firstDayOfMonth }, (_, i) => (
+      <View key={`empty-${i}`} style={styles.calendarDate} />
+    ))
+
+    const dateCells = Array.from({ length: daysInMonth }, (_, i) => {
+      const date = i + 1
+      const parsedDate = (rawDate: string) => {
+        const match = rawDate.match(/(\d+)\s*/)
+        return match ? parseInt(match[1], 10) : -1
+      }
+
+      const dateData = attendanceData.find((item) => parsedDate(item.date) === date)
+      const status = dateData?.status || "Unknown"
+
+      return (
+        <View key={`date-${date}`} style={[styles.calendarDate, status === "Weekend" && styles.calendarWeekend]}>
+          <Text style={styles.calendarDateText}>{date}</Text>
+          {status !== "Unknown" && status !== "-" && status !== "Weekend" && (
+            <View style={[styles.calendarStatusDot, { backgroundColor: getStatusConfig(status).color }]} />
+          )}
+        </View>
+      )
+    })
+
+    return (
+      <View style={styles.calendarContainer}>
+        <View style={styles.calendarGrid}>
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day, index) => (
+            <View key={`day-${index}`} style={styles.calendarDay}>
+              <Text style={styles.calendarDayText}>{day}</Text>
+            </View>
+          ))}
+          {emptyCells}
+          {dateCells}
+        </View>
+
+        <View style={styles.legendRow}>
+          <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#10b981' }]} /><Text style={styles.legendText}>Present</Text></View>
+          <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#ef4444' }]} /><Text style={styles.legendText}>Absent</Text></View>
+          <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#6366f1' }]} /><Text style={styles.legendText}>On Leave</Text></View>
+          <View style={styles.legendItem}><View style={[styles.legendDot, { backgroundColor: '#9ca3af' }]} /><Text style={styles.legendText}>Weekend</Text></View>
+        </View>
+      </View>
+    )
+  }
+
+  const todayFormatted = format(new Date(), "dd/MM/yyyy")
+  const targetedTodayObj = empAttendance.find((x: RealEntry) => x.date === todayFormatted)
+  const displayRecords = getFilteredAttendanceData()
+  
+  const currentDayOfMonth = new Date().getDate();
+  const calculatedTodayRow = attendanceData.find(item => item.rawDate === currentDayOfMonth);
+
+  let todayStatusLabel = "Absent"
+  const backendTodayStatus = targetedTodayObj?.status || targetedTodayObj?.approveStatus || ""
+  
+  if (isCheckedIn) {
+    todayStatusLabel = "Active"
+  } else if (calculatedTodayRow?.status === "Leave") {
+    todayStatusLabel = "On Leave"
+  } else if (calculatedTodayRow?.status && calculatedTodayRow.status !== "-") {
+    todayStatusLabel = calculatedTodayRow.status === "Leave" ? "On Leave" : calculatedTodayRow.status
+  } else if (backendTodayStatus.toLowerCase().includes("leave")) {
+    todayStatusLabel = "On Leave"
+  } else if (hasCompletedDay) {
+    const activeTodayHours = parseWorkHoursToSeconds(targetedTodayObj?.work_hours || "") / 3600
+    todayStatusLabel = (activeTodayHours > 0 && activeTodayHours < 4) ? "Half Day" : "Present"
+  }
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={true} />
+      
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.headerIconButton}>
+          <Feather name="menu" size={24} color="#1e293b" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Attendance</Text>
+        <TouchableOpacity 
+          style={[styles.headerIconButton, isMonthPickerVisible && { backgroundColor: '#f1f5f9' }]}
+          onPress={() => setIsMonthPickerVisible(!isMonthPickerVisible)}
+        >
+          <Feather name="calendar" size={24} color="#1e293b" />
+        </TouchableOpacity>
+      </View>
+
+      {isMonthPickerVisible && (
+        <View style={styles.dropdownPickerCard}>
+          <Text style={styles.pickerTitleLabel}>Select Reference Target Month</Text>
+          <View style={styles.pickerGridContainer}>
+            {monthNamesArray.map((mName, mIdx) => (
+              <TouchableOpacity 
+                key={mName}
+                style={[
+                  styles.pickerGridItem,
+                  (currentMonth === mIdx + 1) && styles.pickerGridItemActive
+                ]}
+                onPress={() => selectDirectMonth(mIdx)}
+              >
+                <Text style={[
+                  styles.pickerItemText,
+                  (currentMonth === mIdx + 1) && styles.pickerItemTextActive
+                ]}>
+                  {mName.substring(0, 3)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
+      <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        style={{ backgroundColor: '#f8fafc' }} 
+        contentContainerStyle={styles.scrollContent}
+      >
+        <View style={styles.monthPaginationRow}>
+          <TouchableOpacity onPress={goToPreviousMonth} style={styles.paginationArrow}>
+            <Feather name="chevron-left" size={20} color="#3b82f6" />
+          </TouchableOpacity>
+          <Text style={styles.monthDisplayLabel}>{monthNamesArray[currentMonth - 1]} {currentYear}</Text>
+          <TouchableOpacity onPress={goToNextMonth} style={styles.paginationArrow}>
+            <Feather name="chevron-right" size={20} color="#3b82f6" />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.checkInBannerCard}>
+          <View style={styles.timerLabelsGroup}>
+            <Text style={styles.hoursCardLabel}>Working Hours</Text>
+            
+            <Text style={styles.hoursTimerString}>
+              {isCheckedIn 
+                ? formatWorkDuration(secondsElapsed) 
+                : formatWorkDurationShort(secondsElapsed)
+              }
+            </Text>
+            
+            <Text style={styles.checkedInSubtitle}>
+              {isCheckedIn 
+                ? `Checked in at ${checkInTimeDisplay}` 
+                : (hasCompletedDay ? "Day Completed" : (backendTodayStatus.toLowerCase().includes("leave") ? "On Leave" : "Not Checked In"))
+              }
+            </Text>
+          </View>
+  
+          <View style={styles.radialAccentDecoration}>
+            <View style={styles.pulseRingOuter} />
+            <View style={styles.pulseRingInner} />
+            <TouchableOpacity 
+              disabled={hasCompletedDay || backendTodayStatus.toLowerCase().includes("leave")}
+              style={[
+                styles.checkInMainActionButton,
+                { backgroundColor: '#10b981' },
+                (hasCompletedDay || backendTodayStatus.toLowerCase().includes("leave")) && { backgroundColor: '#e2e8f0' }
+              ]}
+              onPress={handleCheckInOut}
+            >
+              <Text style={[styles.checkInButtonText, (hasCompletedDay || backendTodayStatus.toLowerCase().includes("leave")) && { color: '#94a3b8' }]}>
+                {isCheckedIn ? "Check-Out" : "Check-In"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <Text style={styles.sectionTitle}>Attendance Summary</Text>
+        <View style={styles.metricStatsRow}>
+          
+          <View style={styles.metricItemBlock}>
+            <View style={[styles.iconContainer, { backgroundColor: '#f0fdf4' }]}>
+              <Feather name="calendar" size={18} color="#10b981" />
+            </View>
+            <Text style={styles.metricCountText}>{summary.present}</Text>
+            <Text style={[styles.metricLabelSubtitle, { color: '#10b981' }]}>Present</Text>
+          </View>
+
+          <View style={styles.metricItemBlock}>
+            <View style={[styles.iconContainer, { backgroundColor: '#fef2f2' }]}>
+              <Feather name="users" size={18} color="#ef4444" />
+            </View>
+            <Text style={styles.metricCountText}>{summary.absent}</Text>
+            <Text style={[styles.metricLabelSubtitle, { color: '#ef4444' }]}>Absent</Text>
+          </View>
+
+          <View style={styles.metricItemBlock}>
+            <View style={[styles.iconContainer, { backgroundColor: '#e0e7ff' }]}>
+              <Feather name="user" size={18} color="#6366f1" />
+            </View>
+            <Text style={styles.metricCountText}>{summary.leave}</Text>
+            <Text style={[styles.metricLabelSubtitle, { color: '#6366f1' }]}>On Leave</Text>
+          </View>
+
+          <View style={[styles.metricItemBlock, { borderRightWidth: 0 }]}>
+            <View style={[styles.iconContainer, { backgroundColor: '#fff7ed' }]}>
+              <Feather name="clock" size={18} color="#ff7a00" />
+            </View>
+            <Text style={styles.metricCountText}>{summary.halfDay}</Text>
+            <Text style={[styles.metricLabelSubtitle, { color: '#ff7a00' }]}>Half Day</Text>
+          </View>
+
+        </View>
+
+        <View style={styles.tabToggleRow}>
+          <TouchableOpacity 
+            style={[styles.toggleButton, view === "list" && styles.activeToggleButton]}
+            onPress={() => {
+              setView("list")
+              setShowAllRecords(false) 
+            }}
+          >
+            <Text style={[styles.toggleButtonText, view === "list" && styles.activeToggleButtonText]}>List View</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.toggleButton, view === "calendar" && styles.activeToggleButton]}
+            onPress={() => setView("calendar")}
+          >
+            <Text style={[styles.toggleButtonText, view === "calendar" && styles.activeToggleButtonText]}>Calendar View</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.sectionTitle}>
+          {view === "list" && !showAllRecords ? "This Week's Attendance Records" : "Attendance Records"}
+        </Text>
+        
+        {view === "list" ? (
+          <View style={styles.sectionWrapperCard}>
+            <View style={styles.listContainerBox}>
+              {displayRecords.length === 0 ? (
+                <Text style={styles.emptyTextMessage}>No tracking logs for this period.</Text>
+              ) : (
+                displayRecords.map((item) => (
+                  <View key={item.id}>
+                    {renderAttendanceItem({ item })}
+                  </View>
+                ))
+              )}
+            </View>
+            <TouchableOpacity 
+              style={styles.viewAllRecordsRow}
+              onPress={() => setShowAllRecords(!showAllRecords)}
+            >
+              <Text style={styles.viewAllRecordsText}>
+                {showAllRecords ? "Show Less" : "View All Records"}
+              </Text>
+              <Feather 
+                name={showAllRecords ? "chevron-up" : "arrow-right"} 
+                size={16} 
+                color="#435ffd" 
+              />
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.sectionWrapperCard}>
+            {renderCalendarView()}
+          </View>
+        )}
+
+        <Text style={styles.sectionTitle}>Today's Log</Text>
+        <View style={styles.sectionWrapperCard}>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={styles.logSubCard}>
+              <View style={[styles.logIndicatorIconCircle, { backgroundColor: '#e6f4ea' }]}>
+                <Feather name="check-circle" size={16} color="#10b981" />
+              </View>
+              <View style={styles.logDetailMetaGroup}>
+                <Text style={styles.logTimeHeaderLabel}>Check-In</Text>
+                <Text style={styles.logTimeTimestampString}>
+                  {targetedTodayObj?.start_time && targetedTodayObj.start_time !== "-" ? targetedTodayObj.start_time.substring(0, 5) : "--:--"}
+                </Text>
+              </View>
+            </View>
+            
+            <View style={styles.logSubCard}>
+              <View style={[styles.logIndicatorIconCircle, { backgroundColor: '#fce8e6' }]}>
+                <Feather name="log-out" size={16} color="#ef4444" />
+              </View>
+              <View style={styles.logDetailMetaGroup}>
+                <Text style={styles.logTimeHeaderLabel}>Check-Out</Text>
+                <Text style={styles.logTimeTimestampString}>
+                  {targetedTodayObj?.end_time && targetedTodayObj.end_time !== "-" ? targetedTodayObj.end_time.substring(0, 5) : "--:--"}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+      </ScrollView>
+
+     <LeaveModal visible={modalVisible} onClose={() => setModalVisible(false)} />
+    </View>
+  )
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#fafbfe" },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fafbfe' },
+  loadingText: { marginTop: 12, fontSize: 14, color: '#64748b', fontWeight: '600' },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: Platform.OS === "ios" ? 55 :16,
+    paddingBottom: 16,
+    backgroundColor: "#ffffff",
+    borderBottomWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  headerIconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#1e293b",
+  },
+  scrollContent: { 
+        flexGrow: 1,       
+        paddingHorizontal: 16, 
+        paddingBottom: 32,
+        backgroundColor: '#f8fafc' 
+    },
+  dropdownPickerCard: {
+    backgroundColor: '#ffffff',
+    marginHorizontal: 20,
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    position: 'absolute',
+    top: Platform.OS === "ios" ? 105 : 66,
+    left: 0,
+    right: 0,
+    zIndex: 99,
+  },
+  pickerTitleLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#64748b',
+    textTransform: 'uppercase',
+    marginBottom: 12,
+    letterSpacing: 0.5,
+  },
+  pickerGridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'space-between', // Spreads the 4 columns evenly
+  },
+  pickerGridItem: {
+    width: '22%',
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  pickerGridItemActive: {
+    backgroundColor: '#435ffd',
+    borderColor: '#435ffd',
+  },
+  pickerItemText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  pickerItemTextActive: {
+    color: '#ffffff',
+  },
+  legendRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingHorizontal: 4,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  legendDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  legendText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#64748b',
+  },
+  contentScroll: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  monthPaginationRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginVertical: 12,
+  },
+  paginationArrow: {
+    padding: 8,
+  },
+  monthDisplayLabel: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1e293b',
+    marginHorizontal: 24,
+  },
+  checkInBannerCard: {
+    backgroundColor: '#3b52f6',
+    borderRadius: 24,
+    padding: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  timerLabelsGroup: {
+    flex: 1,
+    zIndex: 2,
+  },
+  hoursCardLabel: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 4,
+  },
+  hoursTimerString: {
+    color: '#ffffff',
+    fontSize: 28,
+    fontWeight: '800',
+  },
+  checkedInSubtitle: {
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 13,
+    marginTop: 6,
+    fontWeight: '500',
+  },
+  radialAccentDecoration: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
+  },
+  checkInMainActionButton: {
+    backgroundColor: '#10b981',
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+    borderRadius: 16,
+    shadowColor: "#10b981",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  checkInButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginTop: 24,
+    marginBottom: 12,
+  },
+  metricStatsRow: {
+    flexDirection: 'row',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  metricItemBlock: {
+    flex: 1,
+    alignItems: 'center',
+    borderRightWidth: 1,
+    borderRightColor: '#f1f5f9',
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  metricCountText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  metricLabelSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#64748b',
+    marginTop: 2,
+  },
+  tabToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: '#f1f5f9',
+    borderRadius: 14,
+    padding: 4,
+    marginTop: 20,
+  },
+  toggleButton: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 12,
+  },
+  activeToggleButton: {
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  toggleButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  activeToggleButtonText: {
+    color: '#435ffd',
+  },
+  sectionWrapperCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  listContainerBox: {
+    marginTop: 4,
+  },
+  emptyTextMessage: {
+    textAlign: 'center',
+    color: '#94a3b8',
+    fontSize: 14,
+    paddingVertical: 24,
+    fontWeight: '500',
+  },
+  attendanceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  dateColumn: {
+    width: '20%',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  dayText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
+    textTransform: 'capitalize',
+  },
+  dateNumberText: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1e293b',
+    lineHeight: 24,
+    marginVertical: 2,
+  },
+  monthText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  detailsColumn: {
+    width: '55%',
+    justifyContent: 'center',
+    paddingLeft: 10,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
+  },
+  statusText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  timeRangeText: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  hoursColumn: {
+    width: '25%',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  durationHoursText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#10b981',
+  },
+  viewAllRecordsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 16,
+    gap: 8,
+  },
+  viewAllRecordsText: {
+    color: '#435ffd',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  logSubCard: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#f8fafc',
+    padding: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  logIndicatorIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  logDetailMetaGroup: {
+    flex: 1,
+  },
+  logTimeHeaderLabel: {
+    fontSize: 11,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  logTimeTimestampString: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1d2939',
+    marginTop: 2,
+  },
+  logBottomStatsBlock: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+    padding: 12,
+    borderRadius: 12,
+  },
+  leaveButtonContainer: {
+    flexDirection: 'row',
+    marginTop: 16,
+    gap: 12,
+  },
+  leaveButton: {
+    flex: 1,
+    backgroundColor: '#435ffd',
+    flexDirection: 'row',
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  leaveText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  calendarContainer: {
+    paddingVertical: 12,
+  },
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  calendarDay: {
+    width: "14.28%",
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  calendarDayText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#64748b",
+  },
+  calendarDate: {
+    width: "14.28%",
+    height: 36,
+    justifyContent: "center",
+    alignItems: "center",
+    marginVertical: 4,
+    borderRadius: 8,
+  },
+  calendarWeekend: {
+    backgroundColor: "#f8fafc",
+  },
+  calendarDateText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: "#1d2939",
+  },
+  calendarStatusDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    marginTop: 3,
+  },
+ 
+  // ADD THESE TWO BLOCKS RIGHT HERE:
+  pulseRingOuter: {
+    position: 'absolute',
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  pulseRingInner: {
+    position: 'absolute',
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+})
+
+------------------------------------------
+const fetchDashboardData = async (forcedProfileName: string) => {
+  try {
+    console.log("================ [DEBUG START] ================");
+    console.log("[1] forcedProfileName:", forcedProfileName);
+    
+    const response = await fetch(`${API_BASE_URL}/fetch-my-attendance-history-mobile`, {
+      credentials: 'include',
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    let leaveHistoryArr: any[] = [];
+    try {
+      const leaveResponse = await fetch(`${API_BASE_URL}/my-time-off-request-list-mobile`, {
+        credentials: 'include',
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (leaveResponse.ok) {
+        const rawLeaveText = await leaveResponse.text();
+        if (!rawLeaveText.trim().startsWith('<')) {
+          const leaveData = JSON.parse(rawLeaveText);
+          leaveHistoryArr = leaveData.offRequests || [];
+          console.log("[2] Leave API returned items count:", leaveHistoryArr.length);
+          console.log("[2a] Sample Leave Record:", leaveHistoryArr[0] || "None");
+        }
+      }
+    } catch (err) {
+      console.log("[2-ERR] Error checking leave endpoint:", err);
+    }
+    
+    if (response.ok) {
+      const rawAttendanceText = await response.text();
+      const dataPayload = JSON.parse(rawAttendanceText);
+      const history = dataPayload.attendanceHistory || dataPayload.history || [];
+      
+      console.log("[3] Attendance History total items:", history.length);
+      console.log("[3a] Sample Attendance Item:", history[0] || "None");
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      let presentCount = 0;
+      let absentCount = 0;
+      let leaveCount = 0;
+      let halfDayCount = 0;
+
+      let startDate = new Date(today);
+      let endDate = new Date(today);
+
+      if (timeframe === 'week') {
+        const currentDay = today.getDay();
+        startDate.setDate(today.getDate() - currentDay);
+        endDate = new Date(startDate);
+        endDate.setDate(startDate.getDate() + 6);        
+      } else if (timeframe === 'month') {
+        startDate = new Date(today.getFullYear(), today.getMonth(), 1);
+        endDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      } else if (timeframe === 'year') {
+        startDate = new Date(today.getFullYear(), 0, 1);
+        endDate = new Date(today.getFullYear(), 12, 0);
+      }
+
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(0, 0, 0, 0);
+
+      console.log(`[4] Date Filter Range: ${startDate.toDateString()} -> ${endDate.toDateString()}`);
+
+      history.forEach((realEntry: any, index: number) => {
+        const parts = realEntry.date ? realEntry.date.split('/') : [];
+        const recordDate = parts.length === 3 ? new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0])) : null;
+        if (recordDate) recordDate.setHours(0, 0, 0, 0);
+
+        const inRange = recordDate && (recordDate >= startDate && recordDate <= endDate);
+
+        // LOG FIRST 3 ENTRIES IN RANGE
+        if (inRange && index < 3) {
+          console.log(`[5-Record #${index}] Date: ${realEntry.date}`);
+          console.log(`    Parsed Date: ${recordDate?.toDateString()}`);
+          console.log(`    Status Raw: "${realEntry.status}", ApproveStatus Raw: "${realEntry.approveStatus}"`);
+          console.log(`    start_time: "${realEntry.start_time}", end_time: "${realEntry.end_time}", work_hours: "${realEntry.work_hours}"`);
+        }
+
+        if (inRange) {
+          const backendStatus = (realEntry.status || realEntry.approveStatus || "").toLowerCase();
+          const hasStartTime = realEntry.start_time && realEntry.start_time.trim() !== "-";
+          const hasEndTime = realEntry.end_time && realEntry.end_time.trim() !== "-";
+
+          if (backendStatus.includes("leave") || backendStatus.includes("approved")) {
+            leaveCount++;
+            if (index < 3) console.log(`    --> Categorized as LEAVE (via status string match)`);
+          } else if (!hasStartTime && !hasEndTime) {
+            leaveCount++;
+            if (index < 3) console.log(`    --> Categorized as LEAVE (because start_time & end_time were empty/dash)`);
+          } else {
+            const numericHours = parseWorkHoursToNumeric(realEntry.work_hours);
+            if (numericHours > 0 && numericHours < 4) {
+              halfDayCount++;
+              if (index < 3) console.log(`    --> Categorized as HALF DAY (hours: ${numericHours})`);
+            } else {
+              presentCount++;
+              if (index < 3) console.log(`    --> Categorized as PRESENT (hours: ${numericHours})`);
+            }
+          }
+        }
+      });
+
+      console.log(`[6] Preliminary Summary: Present: ${presentCount}, Leave: ${leaveCount}, HalfDay: ${halfDayCount}, Absent: ${absentCount}`);
+      console.log("================ [DEBUG END] ================");
+
+    }
+  } catch (error) {
+    console.error("[DEBUG ENGINE CRASH]:", error);
+  }
+};
+------------------------------------------
+
+// //i'm usefull please readme if you have any code or about this app before changing anything
+
+ // "use client"
+
+// // // import { useState, useEffect } from "react"
+// // // import { 
+// // //   View, 
+// // //   Text, 
+// // //   StyleSheet, 
+// // //   ScrollView, 
+// // //   TouchableOpacity, 
+// // //   Image, 
+// // //   StatusBar, 
+// // //   Platform, 
+// // //   ActivityIndicator,
+// // //   Alert 
+// // // } from "react-native"
+// // // import { Feather } from "@expo/vector-icons"
+// // // import { useRouter } from "expo-router"
+// // // import { format } from "date-fns"
+// // // import LeaveModal from "@/components/attendance/LeaveModal"
+
+// // // // TypeScript interfaces matching your complete dashboard schema structures
+// // // interface DashboardData {
+// // //   employeeName: string;
+// // //   avatarUrl: string;
+// // //   todayLog: {
+// // //     checkIn: string;
+// // //     checkOut: string;
+// // //     workingHours: string;
+// // //     status: string;
+// // //   };
+// // //   summary: {
+// // //     present: number;
+// // //     absent: number;
+// // //     leave: number;
+// // //     halfDay: number;
+// // //     totalDays: number;
+// // //   };
+// // //   upcomingEvents: Array<{
+// // //     id: string;
+// // //     title: string;
+// // //     dateStr: string;
+// // //     dayNum: string;
+// // //     monthStr: string;
+// // //     type: "Event" | "Holiday" | "Update";
+// // //     typeColor: string;
+// // //   }>;
+// // // }
+
+// // // // Target helper matching your raw response mapping rules from attendance components
+// // // type RealEntry = {
+// // //   date: string; 
+// // //   start_time: string;
+// // //   end_time: string;
+// // //   name: string;
+// // //   username: string;
+// // //   work_hours: string;
+// // // }
+
+// // // export default function DashboardScreen() {
+// // //   const router = useRouter()
+// // //   const [loading, setLoading] = useState<boolean>(true)
+// // //   const [modalVisible, setModalVisible] = useState<boolean>(false)
+  
+// // //   // State initialization with complete structural templates waiting for API response mapping
+// // //   const [data, setData] = useState<DashboardData>({
+// // //     employeeName: "",
+// // //     avatarUrl: "",
+// // //     todayLog: { checkIn: "--:--", checkOut: "--:--", workingHours: "00h 00m", status: "-" },
+// // //     summary: { present: 0, absent: 0, leave: 0, halfDay: 0, totalDays: 0 },
+// // //     upcomingEvents: []
+// // //   })
+
+// // //   const fetchDashboardData = async () => {
+// // //   try {
+// // //     setLoading(true)
+    
+// // //     // 1. Fetching the exact same source array payload from your backend
+// // //     const response = await fetch("${API_BASE_URL}/fetch-my-attendance-history-mobile", {
+// // //       method: "GET",
+// // //       headers: { "Content-Type": "application/json" },
+// // //     })
+    
+// // //     if (response.ok) {
+// // //       const dataPayload = await response.json();
+// // //       const history = dataPayload.attendanceHistory || [];
+      
+// // //       const targetMonth = new Date().getMonth() + 1 // Current Month (1-12)
+// // //       const targetYear = new Date().getFullYear() // Current Year
+// // //       const todayStr = format(new Date(), "dd/MM/yyyy")
+// // //       const today = new Date()
+// // //       today.setHours(0, 0, 0, 0)
+
+// // //       // 2. Generate implicit month map to calculate structural invariants (Weekends/Absences)
+// // //       const daysInMonth = new Date(targetYear, targetMonth, 0).getDate()
+      
+// // //       let presentCount = 0
+// // //       let absentCount = 0
+// // //       let leaveCount = 0
+// // //       let halfDayCount = 0
+      
+// // //       let todayLog = { checkIn: "--:--", checkOut: "--:--", workingHours: "00h 00m", status: "Absent" }
+// // //       let employeeName = "Employee"
+
+// // //       // Process every day of the month exactly like your generateAttendanceData function does
+// // //       for (let day = 1; day <= daysInMonth; day++) {
+// // //         const targetDateObj = new Date(targetYear, targetMonth - 1, day)
+// // //         const dayOfWeek = targetDateObj.getDay()
+// // //         const formattedRealDate = `${String(day).padStart(2, "0")}/${String(targetMonth).padStart(2, "0")}/${targetYear}`
+        
+// // //         // Find match inside historical database records
+// // //         const realEntry = history.find((item: any) => item.date === formattedRealDate)
+
+// // //         // Evaluate conditions matching your status configurations exactly
+// // //         if (realEntry) {
+// // //           presentCount++
+// // //           if (realEntry.name) employeeName = realEntry.name
+// // //         } else if (targetDateObj > today) {
+// // //           // Future dates do not increment statistics counters
+// // //         } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+// // //           // Weekend matches
+// // //         } else {
+// // //           absentCount++ // Unlogged historical weekdays count as Absent
+// // //         }
+// // //       }
+
+// // //       // 3. Find Today's explicit record metrics to satisfy Today's Log View cards
+// // //       const todayRecord = history.find((item: any) => item.date === todayStr)
+// // //       if (todayRecord) {
+// // //         todayLog = {
+// // //           checkIn: todayRecord.start_time && todayRecord.start_time !== "-" ? todayRecord.start_time.substring(0, 5) : "--:--",
+// // //           checkOut: todayRecord.end_time && todayRecord.end_time !== "-" ? todayRecord.end_time.substring(0, 5) : "--:--",
+// // //           workingHours: todayRecord.work_hours && todayRecord.work_hours !== "-" ? todayRecord.work_hours : "00h 00m",
+// // //           status: todayRecord.start_time && (!todayRecord.end_time || todayRecord.end_time === "-") ? "Active" : "Present"
+// // //         }
+// // //       }
+
+// // //       const totalCalculatedDays = presentCount + absentCount + leaveCount + halfDayCount
+
+// // //       // 4. Update the combined UI components cleanly
+// // //       setData({
+// // //         employeeName: employeeName,
+// // //         avatarUrl: "", 
+// // //         todayLog: todayLog,
+// // //         summary: {
+// // //           present: presentCount,
+// // //           absent: absentCount,
+// // //           leave: leaveCount,
+// // //           halfDay: halfDayCount,
+// // //           totalDays: totalCalculatedDays
+// // //         },
+// // //         upcomingEvents: [] // Handled locally on client side
+// // //       })
+
+// // //     } else {
+// // //       Alert.alert("Execution Error", "Failed to compile background calculations.")
+// // //     }
+// // //   } catch (error) {
+// // //     console.error("Dashboard engine failed to load analytics arrays:", error)
+// // //   } finally {
+// // //     setLoading(false)
+// // //   }
+// // // }
+// // //   // // Fetch complete aggregated backend payload structural model
+// // //   // const fetchDashboardData = async () => {
+// // //   //   try {
+// // //   //     setLoading(true)
+      
+// // //   //     // Target direct aggregate route setup for cross-component dashboard calculations
+// // //   //     const response = await fetch("${API_BASE_URL}/api/dashboard/fetch-data", {
+// // //   //       method: "GET",
+// // //   //       headers: { "Content-Type": "application/json" },
+// // //   //     })
+      
+// // //   //     if (response.ok) {
+// // //   //       const jsonResult = await response.json()
+        
+// // //   //       // Secondary safety optimization: map properties uniformly if your raw database has alternative keys
+// // //   //       setData({
+// // //   //         employeeName: jsonResult.employeeName || jsonResult.name || "",
+// // //   //         avatarUrl: jsonResult.avatarUrl || "",
+// // //   //         todayLog: {
+// // //   //           checkIn: jsonResult.todayLog?.checkIn || "--:--",
+// // //   //           checkOut: jsonResult.todayLog?.checkOut || "--:--",
+// // //   //           workingHours: jsonResult.todayLog?.workingHours || "00h 00m",
+// // //   //           status: jsonResult.todayLog?.status || "-"
+// // //   //         },
+// // //   //         summary: {
+// // //   //           present: jsonResult.summary?.present || 0,
+// // //   //           absent: jsonResult.summary?.absent || 0,
+// // //   //           leave: jsonResult.summary?.leave || 0,
+// // //   //           halfDay: jsonResult.summary?.halfDay || 0,
+// // //   //           totalDays: jsonResult.summary?.totalDays || 0
+// // //   //         },
+// // //   //         upcomingEvents: jsonResult.upcomingEvents || []
+// // //   //       })
+// // //   //     } else {
+// // //   //       Alert.alert("Server Error", "Could not synchronize dashboard statistics.")
+// // //   //     }
+// // //   //   } catch (error: any) {
+// // //   //     console.error("Dashboard backend connection breakdown:", error)
+// // //   //     Alert.alert("Network Failure", "Cannot reach server. Verify your backend machine IP context.")
+// // //   //   } finally {
+// // //   //     setLoading(false)
+// // //   //   }
+// // //   // }
+
+// // //   useEffect(() => {
+// // //     fetchDashboardData()
+// // //   }, [])
+
+// // //   if (loading) {
+// // //     return (
+// // //       <View style={styles.loadingContainer}>
+// // //         <ActivityIndicator size="large" color="#3b52f6" />
+// // //         <Text style={styles.loadingText}>Syncing Database Records...</Text>
+// // //       </View>
+// // //     )
+// // //   }
+
+// // //   // Percentage Calculations for the visual metrics layout charts
+// // //   const presentPct = data.summary.totalDays > 0 ? (data.summary.present / data.summary.totalDays) * 100 : 0
+// // //   const absentPct = data.summary.totalDays > 0 ? (data.summary.absent / data.summary.totalDays) * 100 : 0
+// // //   const leavePct = data.summary.totalDays > 0 ? (data.summary.leave / data.summary.totalDays) * 100 : 0
+// // //   const halfDayPct = data.summary.totalDays > 0 ? (data.summary.halfDay / data.summary.totalDays) * 100 : 0
+
+// // //   // Safe dynamic assignment for image sources to maintain structural styling
+// // //   const avatarSource = data.avatarUrl && data.avatarUrl.trim() !== ""
+// // //     ? { uri: data.avatarUrl }
+// // //     : { uri: "https://cdn-icons-png.flaticon.com/512/149/149071.png" };
+
+// // //   return (
+// // //     <View style={styles.container}>
+// // //       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
+
+// // //       {/* --- TOP GLOBAL NAVIGATION HEADER FRAME --- */}
+// // //       <View style={styles.header}>
+// // //         <TouchableOpacity style={styles.headerIconButton}>
+// // //           <Feather name="menu" size={24} color="#1e293b" />
+// // //         </TouchableOpacity>
+// // //         <Text style={styles.headerTitle}>Dashboard</Text>
+// // //         <View style={styles.headerRightGroup}>
+// // //           <TouchableOpacity style={styles.headerIconButton}>
+// // //             <View style={styles.notificationBadgeNode} />
+// // //             <Feather name="bell" size={22} color="#1e293b" />
+// // //           </TouchableOpacity>
+          
+// // //           <TouchableOpacity 
+// // //             onPress={() => router.push("/profile")} 
+// // //             style={styles.avatarTouchTarget}
+// // //           >
+// // //             <Image 
+// // //               source={avatarSource} 
+// // //               style={styles.profileAvatarImg} 
+// // //             />
+// // //           </TouchableOpacity>
+// // //         </View>
+// // //       </View>
+
+// // //       <ScrollView style={styles.contentScroll} showsVerticalScrollIndicator={false}>
+        
+// // //         {/* --- DYNAMIC WELCOME HERO CARD BANNER --- */}
+// // //         <View style={styles.welcomeHeroCard}>
+// // //           <View style={styles.heroTextFrame}>
+// // //             <Text style={styles.heroSalutation}>Good Morning, {data.employeeName || "User"} 👋</Text>
+// // //             <Text style={styles.heroHeading}>Welcome Back!</Text>
+// // //             <Text style={styles.heroSubtitle}>Have a productive day ahead.</Text>
+// // //           </View>
+// // //           <Feather name="award" size={54} color="#ffffff" style={{ opacity: 0.8 }} />
+// // //         </View>
+
+// // //         {/* --- ATTENDANCE SUMMARY COUNT ROW GRID --- */}
+// // //         <View style={styles.sectionHeaderRow}>
+// // //           <Text style={styles.sectionHeading}>Attendance Summary</Text>
+// // //           <TouchableOpacity style={styles.textActionLink}>
+// // //             <Text style={styles.actionLinkText}>This Month</Text>
+// // //             <Feather name="chevron-down" size={14} color="#435ffd" />
+// // //           </TouchableOpacity>
+// // //         </View>
+
+// // //         <View style={styles.metricStatsRow}>
+// // //           <View style={styles.metricItemBlock}>
+// // //             <View style={[styles.iconContainer, { backgroundColor: '#f0fdf4' }]}>
+// // //               <Feather name="calendar" size={18} color="#10b981" />
+// // //             </View>
+// // //             <Text style={styles.metricCountText}>{data.summary.present}</Text>
+// // //             <Text style={[styles.metricLabelSubtitle, { color: '#10b981' }]}>Present</Text>
+// // //           </View>
+// // //           <View style={styles.metricItemBlock}>
+// // //             <View style={[styles.iconContainer, { backgroundColor: '#fef2f2' }]}>
+// // //               <Feather name="users" size={18} color="#ef4444" />
+// // //             </View>
+// // //             <Text style={styles.metricCountText}>{data.summary.absent}</Text>
+// // //             <Text style={[styles.metricLabelSubtitle, { color: '#ef4444' }]}>Absent</Text>
+// // //           </View>
+// // //           <View style={styles.metricItemBlock}>
+// // //             <View style={[styles.iconContainer, { backgroundColor: '#e0e7ff' }]}>
+// // //               <Feather name="user" size={18} color="#6366f1" />
+// // //             </View>
+// // //             <Text style={styles.metricCountText}>{data.summary.leave}</Text>
+// // //             <Text style={[styles.metricLabelSubtitle, { color: '#6366f1' }]}>On Leave</Text>
+// // //           </View>
+// // //           <View style={[styles.metricItemBlock, { borderRightWidth: 0 }]}>
+// // //             <View style={[styles.iconContainer, { backgroundColor: '#fff7ed' }]}>
+// // //               <Feather name="clock" size={18} color="#ff7a00" />
+// // //             </View>
+// // //             <Text style={styles.metricCountText}>{data.summary.halfDay}</Text>
+// // //             <Text style={[styles.metricLabelSubtitle, { color: '#ff7a00' }]}>Half Day</Text>
+// // //           </View>
+// // //         </View>
+
+// // //         {/* --- TODAY'S TRACKING LOGS BREAKDOWN BLOCK --- */}
+// // //         <View style={styles.sectionHeaderRow}>
+// // //           <Text style={styles.sectionHeading}>Today's Log Details</Text>
+// // //           <TouchableOpacity onPress={() => router.push("/attendance")} style={styles.textActionLink}>
+// // //             <Text style={styles.actionLinkText}>View Calendar</Text>
+// // //           </TouchableOpacity>
+// // //         </View>
+
+// // //         <View style={styles.sectionWrapperCard}>
+// // //           <View style={styles.logGridRow}>
+// // //             <View style={styles.logDetailBlockCell}>
+// // //               <View style={[styles.logIconWrapper, { backgroundColor: '#e6f4ea' }]}>
+// // //                 <Feather name="check-circle" size={16} color="#10b981" />
+// // //               </View>
+// // //               <Text style={styles.logMetaLabel}>Check In</Text>
+// // //               <Text style={styles.logMetaValue}>{data.todayLog.checkIn}</Text>
+// // //             </View>
+
+// // //             <View style={styles.logDetailBlockCell}>
+// // //               <View style={[styles.logIconWrapper, { backgroundColor: '#fce8e6' }]}>
+// // //                 <Feather name="log-out" size={16} color="#ef4444" />
+// // //               </View>
+// // //               <Text style={styles.logMetaLabel}>Check Out</Text>
+// // //               <Text style={styles.logMetaValue}>{data.todayLog.checkOut}</Text>
+// // //             </View>
+
+// // //             <View style={styles.logDetailBlockCell}>
+// // //               <View style={[styles.logIconWrapper, { backgroundColor: '#e8eaf6' }]}>
+// // //                 <Feather name="watch" size={16} color="#3f51b5" />
+// // //               </View>
+// // //               <Text style={styles.logMetaLabel}>Working Hours</Text>
+// // //               <Text style={styles.logMetaValue}>{data.todayLog.workingHours}</Text>
+// // //             </View>
+
+// // //             <View style={styles.logDetailBlockCell}>
+// // //               <View style={[styles.logIconWrapper, { backgroundColor: '#e0f2fe' }]}>
+// // //                 <Feather name="info" size={16} color="#0284c7" />
+// // //               </View>
+// // //               <Text style={styles.logMetaLabel}>Status</Text>
+// // //               <Text 
+// // //                 style={[
+// // //                   styles.logMetaValue, 
+// // //                   { 
+// // //                     fontWeight: '700',
+// // //                     color: data.todayLog.status === "Active" || data.todayLog.status === "Present" ? '#10b981' : '#ef4444' 
+// // //                   }
+// // //                 ]}
+// // //               >
+// // //                 {data.todayLog.status}
+// // //               </Text>
+// // //             </View>
+// // //           </View>
+// // //         </View>
+
+// // //         {/* --- THIS Month OVERVIEW RING CARD WITH CHART LEGENDS --- */}
+// // //        {/* --- THIS MONTH OVERVIEW CIRCLE CARD WITH CHART LEGENDS --- */}
+// // //         <View style={styles.sectionHeaderRow}>
+// // //           <Text style={styles.sectionTitle}>This Month's Attendance Summary</Text>
+// // //           <TouchableOpacity style={styles.textActionLink}>
+// // //             <Text style={styles.actionLinkText}>View Details</Text>
+// // //           </TouchableOpacity>
+// // //         </View>
+
+// // //         <View style={styles.chartFlexPanelCard}>
+// // //           {(() => {
+// // //             const total = data.summary.totalDays || 1; // Safely avoid dividing by zero
+            
+// // //             // Map individual ratio properties for granular ring tracking rules
+// // //             const presentRatio = data.summary.present / total;
+// // //             const absentRatio = data.summary.absent / total;
+// // //             const leaveRatio = data.summary.leave / total;
+
+// // //             // Determine progressive accumulation values to handle the borders smoothly
+// // //             const presentAndAbsent = presentRatio + absentRatio;
+// // //             const presentAbsentLeave = presentRatio + absentRatio + leaveRatio;
+
+// // //             return (
+// // //               <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
+// // //                 {/* --- DETAILED SPLIT CIRCLE GAUGE ASSEMBLY --- */}
+// // //                 <View style={{ width: 100, height: 100, justifyContent: 'center', alignItems: 'center' }}>
+                  
+// // //                   {/* LAYER 1: Base Track (Default Fallback Layer - Orange for Half Days) */}
+// // //                   <View style={[
+// // //                     styles.radialProgressGraphWrapper, 
+// // //                     { borderColor: '#ff7a00', position: 'absolute' }
+// // //                   ]} />
+
+// // //                   {/* LAYER 2: Leave Segment Track Overrides (Indigo Color) */}
+// // //                   {presentAndAbsent < 1 && (
+// // //                     <View style={[
+// // //                       styles.radialProgressGraphWrapper, 
+// // //                       { 
+// // //                         position: 'absolute',
+// // //                         borderTopColor: '#6366f1',
+// // //                         borderLeftColor: presentAndAbsent > 0.25 ? '#6366f1' : 'transparent',
+// // //                         borderBottomColor: presentAndAbsent > 0.50 ? '#6366f1' : 'transparent',
+// // //                         borderRightColor: presentAndAbsent > 0.75 ? '#6366f1' : 'transparent',
+// // //                       }
+// // //                     ]} />
+// // //                   )}
+
+// // //                   {/* LAYER 3: Absent Segment Track Overrides (Red Color) */}
+// // //                   {presentRatio < 1 && (
+// // //                     <View style={[
+// // //                       styles.radialProgressGraphWrapper, 
+// // //                       { 
+// // //                         position: 'absolute',
+// // //                         borderTopColor: '#ef4444',
+// // //                         borderLeftColor: presentRatio > 0.25 ? '#ef4444' : 'transparent',
+// // //                         borderBottomColor: presentRatio > 0.50 ? '#ef4444' : 'transparent',
+// // //                         borderRightColor: presentRatio > 0.75 ? '#ef4444' : 'transparent',
+// // //                       }
+// // //                     ]} />
+// // //                   )}
+
+// // //                   {/* LAYER 4: Present Segment Track Overrides (Green Color Main Arc) */}
+// // //                   {data.summary.present > 0 && (
+// // //                     <View style={[
+// // //                       styles.radialProgressGraphWrapper, 
+// // //                       { 
+// // //                         position: 'absolute',
+// // //                         borderTopColor: '#10b981',
+// // //                         borderLeftColor: presentRatio > 0.25 ? '#10b981' : 'transparent',
+// // //                         borderBottomColor: presentRatio > 0.50 ? '#10b981' : 'transparent',
+// // //                         borderRightColor: presentRatio > 0.75 ? '#10b981' : 'transparent',
+// // //                       }
+// // //                     ]} />
+// // //                   )}
+
+// // //                   {/* CENTRAL HOLE MASK: Keeps numbers crisp and covers middle block */}
+// // //                   <View style={[
+// // //                     styles.radialGraphInnerHole, 
+// // //                     { position: 'absolute', backgroundColor: '#ffffff', width: 84, height: 84, borderRadius: 42, justifyContent: 'center', alignItems: 'center' }
+// // //                   ]}>
+// // //                     <Text style={styles.radialGraphCenterNumber}>{data.summary.totalDays}</Text>
+// // //                     <Text style={styles.radialGraphCenterSublabel}>Total Days</Text>
+// // //                   </View>
+// // //                 </View>
+
+// // //                 {/* --- CHART LEGENDS --- */}
+// // //                 <View style={styles.chartLegendGridList}>
+// // //                   <View style={styles.chartLegendItemRow}>
+// // //                     <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#10b981' }]} />
+// // //                     <Text style={styles.legendLabelText}>Present</Text>
+// // //                     <Text style={styles.legendValueMetricsText}>{data.summary.present} ({presentPct.toFixed(0)}%)</Text>
+// // //                   </View>
+// // //                   <View style={styles.chartLegendItemRow}>
+// // //                     <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#ef4444' }]} />
+// // //                     <Text style={styles.legendLabelText}>Absent</Text>
+// // //                     <Text style={styles.legendValueMetricsText}>{data.summary.absent} ({absentPct.toFixed(0)}%)</Text>
+// // //                   </View>
+// // //                   <View style={styles.chartLegendItemRow}>
+// // //                     <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#6366f1' }]} />
+// // //                     <Text style={styles.legendLabelText}>On Leave</Text>
+// // //                     <Text style={styles.legendValueMetricsText}>{data.summary.leave} ({leavePct.toFixed(0)}%)</Text>
+// // //                   </View>
+// // //                   <View style={styles.chartLegendItemRow}>
+// // //                     <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#ff7a00' }]} />
+// // //                     <Text style={styles.legendLabelText}>Half Day</Text>
+// // //                     <Text style={styles.legendValueMetricsText}>{data.summary.halfDay} ({halfDayPct.toFixed(0)}%)</Text>
+// // //                   </View>
+// // //                 </View>
+// // //               </View>
+// // //             );
+// // //           })()}
+// // //         </View>
+
+// // //         {/* --- UPCOMING EVENTS DATA CONTROL FEED LIST --- */}
+// // //         <View style={styles.sectionHeaderRow}>
+// // //           <Text style={styles.sectionHeading}>Upcoming Events</Text>
+// // //           <TouchableOpacity style={styles.textActionLink}>
+// // //             <Text style={styles.actionLinkText}>View All</Text>
+// // //           </TouchableOpacity>
+// // //         </View>
+
+// // //         <View style={styles.eventsStackListFrame}>
+// // //           {data.upcomingEvents.length === 0 ? (
+// // //             <Text style={styles.emptyFeedMessage}>No upcoming events found inside backend rows.</Text>
+// // //           ) : (
+// // //             data.upcomingEvents.map((event) => (
+// // //               <View key={event.id} style={styles.eventItemRowCard}>
+// // //                 <View style={styles.eventCalendarBadgeCell}>
+// // //                   <Text style={styles.eventCalendarMonthText}>{event.monthStr}</Text>
+// // //                   <Text style={styles.eventCalendarDayText}>{event.dayNum}</Text>
+// // //                 </View>
+// // //                 <View style={styles.eventMetaDetailsGroup}>
+// // //                   <Text style={styles.eventTitleString}>{event.title}</Text>
+// // //                   <Text style={styles.eventOccurrenceSubtext}>{event.dateStr}</Text>
+// // //                 </View>
+// // //                 <View style={[styles.eventTypeChipBadge, { backgroundColor: `${event.typeColor || '#435ffd'}15` }]}>
+// // //                   <Text style={[styles.eventTypeChipText, { color: event.typeColor || '#435ffd' }]}>{event.type}</Text>
+// // //                 </View>
+// // //               </View>
+// // //             ))
+// // //           )}
+// // //         </View>
+
+// // //         {/* --- QUICK ACTIONS GRID ROW MODIFIERS --- */}
+// // //         <Text style={styles.sectionHeading}>Quick Actions</Text>
+// // //         <View style={styles.quickActionsGridBlock}>
+// // //           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => setModalVisible(true)}>
+// // //             <View style={styles.actionIconWrapperCircle}>
+// // //               <Feather name="edit-3" size={20} color="#435ffd" />
+// // //             </View>
+// // //             <Text style={styles.actionButtonLabelText}>Apply Leave</Text>
+// // //           </TouchableOpacity>
+
+// // //           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => router.push("/attendance")}>
+// // //             <View style={styles.actionIconWrapperCircle}>
+// // //               <Feather name="calendar" size={20} color="#435ffd" />
+// // //             </View>
+// // //             <Text style={styles.actionButtonLabelText}>Attendance</Text>
+// // //           </TouchableOpacity>
+
+// // //           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => router.push("/attendance/leave")}>
+// // //             <View style={styles.actionIconWrapperCircle}>
+// // //               <Feather name="folder" size={20} color="#435ffd" />
+// // //             </View>
+// // //             <Text style={styles.actionButtonLabelText}>My Leaves</Text>
+// // //           </TouchableOpacity>
+
+// // //           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => router.push("/payslip/allPayslips")}>
+// // //             <View style={styles.actionIconWrapperCircle}>
+// // //               <Feather name="file-text" size={20} color="#435ffd" />
+// // //             </View>
+// // //             <Text style={styles.actionButtonLabelText}>Payslip</Text>
+// // //           </TouchableOpacity>
+// // //         </View>
+
+// // //         <View style={{ height: 100 }} />
+// // //       </ScrollView>
+
+// // //       {/* Leave Application Modal overlay injection */}
+// // //       <LeaveModal visible={modalVisible} onClose={() => setModalVisible(false)} />
+// // //     </View>
+// // //   )
+// // // }
+
+// // // const styles = StyleSheet.create({
+// // //   container: { flex: 1, backgroundColor: "#fafbfe" },
+// // //   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fafbfe' },
+// // //   loadingText: { marginTop: 12, fontSize: 14, color: '#64748b', fontWeight: '600' },
+// // //   header: {
+// // //     flexDirection: "row",
+// // //     justifyContent: "space-between",
+// // //     alignItems: "center",
+// // //     paddingHorizontal: 20,
+// // //     paddingTop: Platform.OS === "ios" ? 55 : 16,
+// // //     paddingBottom: 16,
+// // //     backgroundColor: "#ffffff",
+// // //     borderBottomWidth: 1,
+// // //     borderColor: '#f1f5f9',
+// // //   },
+// // //   headerTitle: {
+// // //   fontSize: 20, 
+// // //   fontWeight: "700", 
+// // //   color: "#1e293b" },
+// // //   headerRightGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+// // //   headerIconButton: { 
+// // //     width: 40, 
+// // //     height: 40, 
+// // //     borderRadius: 20, 
+// // //     alignItems: 'center', 
+// // //     justifyContent: 'center', 
+// // //     position: 'relative' },
+// // //   notificationBadgeNode: { position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444', zIndex: 3 },
+// // //   avatarTouchTarget: { marginLeft: 4 },
+// // //   profileAvatarImg: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#e2e8f0' },
+// // //   contentScroll: { flex: 1, paddingHorizontal: 20 },
+// // //   welcomeHeroCard: {
+// // //     backgroundColor: '#5046e5',
+// // //     borderRadius: 24,
+// // //     padding: 24,
+// // //     flexDirection: 'row',
+// // //     alignItems: 'center',
+// // //     justifyContent: 'space-between',
+// // //     marginTop: 20,
+// // //     overflow: 'hidden',
+// // //   },
+// // //   heroTextFrame: { flex: 1, paddingRight: 12 },
+// // //   heroSalutation: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '500' },
+// // //   heroHeading: { color: '#ffffff', fontSize: 24, fontWeight: '800', marginVertical: 4 },
+// // //   heroSubtitle: { color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '400' },
+// // //   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, marginBottom: 4 },
+// // //   sectionHeading: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginTop: 24, marginBottom: 12 },
+// // //   sectionTitle: {
+// // //     fontSize: 16,
+// // //     fontWeight: "700",
+// // //     color: '#0f172a',
+// // //     marginTop: 24,
+// // //     marginBottom: 12,
+// // //     justifyContent: 'space-between'
+// // //   },
+// // //   textActionLink: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+// // //   actionLinkText: { fontSize: 13, fontWeight: '600', color: '#435ffd' },
+// // //   metricStatsRow: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 16, paddingVertical: 16, borderWidth: 1, borderColor: '#f1f5f9' },
+// // //   metricItemBlock: { flex: 1, alignItems: 'center', borderRightWidth: 1, borderRightColor: '#f1f5f9' },
+// // //   iconContainer: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+// // //   metricCountText: { fontSize: 20, fontWeight: '700' },
+// // //   metricLabelSubtitle: { fontSize: 12, fontWeight: '500', marginTop: 2 },
+// // //   sectionWrapperCard: { backgroundColor: '#ffffff', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#f1f5f9' },
+// // //   logGridRow: { flexDirection: 'row', justifyContent: 'space-between' },
+// // //   logDetailBlockCell: { flex: 1, alignItems: 'center' },
+// // //   logIconWrapper: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+// // //   logMetaLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+// // //   logMetaValue: { fontSize: 13, fontWeight: '700', color: '#1e293b', marginTop: 4 },
+// // //   chartFlexPanelCard: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 20, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+// // //   radialProgressGraphWrapper: { width: 100, height: 100, borderRadius: 50, borderWidth: 10, justifyContent: 'center', alignItems: 'center', position: 'relative' },
+// // //   radialGraphInnerHole: { alignItems: 'center', justifyContent: 'center' },
+// // //   radialGraphCenterNumber: { fontSize: 20, fontWeight: '800', color: '#1e293b' },
+// // //   radialGraphCenterSublabel: { fontSize: 9, color: '#64748b', fontWeight: '600', textTransform: 'uppercase' },
+// // //   chartLegendGridList: { flex: 1, paddingLeft: 24, gap: 10 },
+// // //   chartLegendItemRow: { flexDirection: 'row', alignItems: 'center' },
+// // //   legendIndicatorBoxDot: { width: 10, height: 10, borderRadius: 3, marginRight: 8 },
+// // //   legendLabelText: { fontSize: 13, color: '#64748b', fontWeight: '500', flex: 1 },
+// // //   legendValueMetricsText: { fontSize: 13, fontWeight: '600', color: '#1e293b' },
+// // //   eventsStackListFrame: { gap: 12 },
+// // //   eventItemRowCard: { flexDirection: 'row', backgroundColor: '#ffffff', padding: 12, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+// // //   eventCalendarBadgeCell: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
+// // //   eventCalendarMonthText: { fontSize: 10, fontWeight: '700', color: '#ef4444', textTransform: 'uppercase' },
+// // //   eventCalendarDayText: { fontSize: 16, fontWeight: '700', color: '#1e293b', marginTop: 1 },
+// // //   eventMetaDetailsGroup: { flex: 1, paddingLeft: 12 },
+// // //   eventTitleString: { fontSize: 14, fontWeight: '600', color: '#1e293b' },
+// // //   eventOccurrenceSubtext: { fontSize: 12, color: '#64748b', marginTop: 2 },
+// // //   eventTypeChipBadge: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
+// // //   eventTypeChipText: { fontSize: 11, fontWeight: '600' },
+// // //   emptyFeedMessage: { textAlign: 'center', paddingVertical: 20, color: '#94a3b8', fontSize: 13 },
+// // //   quickActionsGridBlock: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginTop: 4 },
+// // //   actionGridCellButton: { flex: 1, backgroundColor: '#ffffff', borderRadius: 16, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+// // //   actionIconWrapperCircle: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#f0f4ff', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+// // //   actionButtonLabelText: { fontSize: 11, fontWeight: '600', color: '#334155' }
+// // // })
+// // "use client"
+
+// // import { useState, useEffect } from "react"
+// // import { 
+// //   View, 
+// //   Text, 
+// //   StyleSheet, 
+// //   ScrollView, 
+// //   TouchableOpacity, 
+// //   Image, 
+// //   StatusBar, 
+// //   Platform, 
+// //   ActivityIndicator,
+// //   Alert 
+// // } from "react-native"
+// // import { Feather } from "@expo/vector-icons"
+// // import { useRouter } from "expo-router"
+// // import { format } from "date-fns"
+// // import LeaveModal from "@/components/attendance/LeaveModal"
+
+// // // TypeScript interfaces matching your complete dashboard schema structures
+// // interface DashboardData {
+// //   employeeName: string;
+// //   avatarUrl: string;
+// //   todayLog: {
+// //     checkIn: string;
+// //     checkOut: string;
+// //     workingHours: string;
+// //     status: string;
+// //   };
+// //   summary: {
+// //     present: number;
+// //     absent: number;
+// //     leave: number;
+// //     halfDay: number;
+// //     totalDays: number;
+// //   };
+// //   upcomingEvents: Array<{
+// //     id: string;
+// //     title: string;
+// //     dateStr: string;
+// //     dayNum: string;
+// //     monthStr: string;
+// //     type: "Event" | "Holiday" | "Update";
+// //     typeColor: string;
+// //   }>;
+// // }
+
+// // export default function DashboardScreen() {
+// //   const router = useRouter()
+// //   const [loading, setLoading] = useState<boolean>(true)
+// //   const [modalVisible, setModalVisible] = useState<boolean>(false)
+  
+// //   // State initialization with complete structural templates waiting for API response mapping
+// //   const [data, setData] = useState<DashboardData>({
+// //     employeeName: "",
+// //     avatarUrl: "",
+// //     todayLog: { checkIn: "--:--", checkOut: "--:--", workingHours: "00h 00m", status: "-" },
+// //     summary: { present: 0, absent: 0, leave: 0, halfDay: 0, totalDays: 0 },
+// //     upcomingEvents: []
+// //   })
+
+// //   const fetchDashboardData = async () => {
+// //     try {
+// //       setLoading(true)
+      
+// //       // Fetching from your backend endpoint
+// //       const response = await fetch("${API_BASE_URL}/fetch-my-attendance-history-mobile", {
+// //         method: "GET",
+// //         headers: { "Content-Type": "application/json" },
+// //       })
+      
+// //       if (response.ok) {
+// //         const dataPayload = await response.json();
+// //         const history = dataPayload.attendanceHistory || [];
+        
+// //         const targetMonth = new Date().getMonth() + 1 // Current Month (1-12)
+// //         const targetYear = new Date().getFullYear() // Current Year
+// //         const todayStr = format(new Date(), "dd/MM/yyyy")
+// //         const today = new Date()
+// //         today.setHours(0, 0, 0, 0)
+
+// //         // Generate implicit month map to calculate statistics
+// //         const daysInMonth = new Date(targetYear, targetMonth, 0).getDate()
+        
+// //         let presentCount = 0
+// //         let absentCount = 0
+// //         let leaveCount = 0
+// //         let halfDayCount = 0
+        
+// //         let todayLog = { checkIn: "--:--", checkOut: "--:--", workingHours: "00h 00m", status: "Absent" }
+// //         let employeeName = "Employee"
+
+// //         // Process every day of the month
+// //         for (let day = 1; day <= daysInMonth; day++) {
+// //           const targetDateObj = new Date(targetYear, targetMonth - 1, day)
+// //           const dayOfWeek = targetDateObj.getDay()
+// //           const formattedRealDate = `${String(day).padStart(2, "0")}/${String(targetMonth).padStart(2, "0")}/${targetYear}`
+          
+// //           const realEntry = history.find((item: any) => item.date === formattedRealDate)
+
+// //           if (realEntry) {
+// //             presentCount++
+// //             if (realEntry.name) employeeName = realEntry.name
+// //           } else if (targetDateObj > today) {
+// //             // Future dates do not increment statistics counters
+// //           } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+// //             // Weekend matches
+// //           } else {
+// //             absentCount++ // Unlogged historical weekdays count as Absent
+// //           }
+// //         }
+
+// //         // Find Today's explicit record metrics
+// //         const todayRecord = history.find((item: any) => item.date === todayStr)
+// //         if (todayRecord) {
+// //           todayLog = {
+// //             checkIn: todayRecord.start_time && todayRecord.start_time !== "-" ? todayRecord.start_time.substring(0, 5) : "--:--",
+// //             checkOut: todayRecord.end_time && todayRecord.end_time !== "-" ? todayRecord.end_time.substring(0, 5) : "--:--",
+// //             workingHours: todayRecord.work_hours && todayRecord.work_hours !== "-" ? todayRecord.work_hours : "00h 00m",
+// //             status: todayRecord.start_time && (!todayRecord.end_time || todayRecord.end_time === "-") ? "Active" : "Present"
+// //           }
+// //         }
+
+// //         const totalCalculatedDays = presentCount + absentCount + leaveCount + halfDayCount
+
+// //         setData({
+// //           employeeName: employeeName,
+// //           avatarUrl: "", 
+// //           todayLog: todayLog,
+// //           summary: {
+// //             present: presentCount,
+// //             absent: absentCount,
+// //             leave: leaveCount,
+// //             halfDay: halfDayCount,
+// //             totalDays: totalCalculatedDays
+// //           },
+// //           upcomingEvents: []
+// //         })
+
+// //       } else {
+// //         Alert.alert("Execution Error", "Failed to compile background calculations.")
+// //       }
+// //     } catch (error) {
+// //       console.error("Dashboard engine failed to load analytics arrays:", error)
+// //     } finally {
+// //       setLoading(false)
+// //     }
+// //   }
+
+// //   useEffect(() => {
+// //     fetchDashboardData()
+// //   }, [])
+
+// //   if (loading) {
+// //     return (
+// //       <View style={styles.loadingContainer}>
+// //         <ActivityIndicator size="large" color="#3b52f6" />
+// //         <Text style={styles.loadingText}>Syncing Database Records...</Text>
+// //       </View>
+// //     )
+// //   }
+
+// //   // Percentage Calculations
+// //   const presentPct = data.summary.totalDays > 0 ? (data.summary.present / data.summary.totalDays) * 100 : 0
+// //   const absentPct = data.summary.totalDays > 0 ? (data.summary.absent / data.summary.totalDays) * 100 : 0
+// //   const leavePct = data.summary.totalDays > 0 ? (data.summary.leave / data.summary.totalDays) * 100 : 0
+// //   const halfDayPct = data.summary.totalDays > 0 ? (data.summary.halfDay / data.summary.totalDays) * 100 : 0
+
+// //   const avatarSource = data.avatarUrl && data.avatarUrl.trim() !== ""
+// //     ? { uri: data.avatarUrl }
+// //     : { uri: "https://cdn-icons-png.flaticon.com/512/149/149071.png" };
+
+// //   return (
+// //     <View style={styles.container}>
+// //       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
+
+// //       {/* --- TOP GLOBAL NAVIGATION HEADER FRAME --- */}
+// //       <View style={styles.header}>
+// //         <TouchableOpacity style={styles.headerIconButton}>
+// //           <Feather name="menu" size={24} color="#1e293b" />
+// //         </TouchableOpacity>
+// //         <Text style={styles.headerTitle}>Dashboard</Text>
+// //         <View style={styles.headerRightGroup}>
+// //           <TouchableOpacity style={styles.headerIconButton}>
+// //             <View style={styles.notificationBadgeNode} />
+// //             <Feather name="bell" size={22} color="#1e293b" />
+// //           </TouchableOpacity>
+          
+// //           <TouchableOpacity 
+// //             onPress={() => router.push("/profile")} 
+// //             style={styles.avatarTouchTarget}
+// //           >
+// //             <Image 
+// //               source={avatarSource} 
+// //               style={styles.profileAvatarImg} 
+// //             />
+// //           </TouchableOpacity>
+// //         </View>
+// //       </View>
+
+// //       <ScrollView style={styles.contentScroll} showsVerticalScrollIndicator={false}>
+        
+// //         {/* --- DYNAMIC WELCOME HERO CARD BANNER --- */}
+// //         <View style={styles.welcomeHeroCard}>
+// //           <View style={styles.heroTextFrame}>
+// //             <Text style={styles.heroSalutation}>Good Morning, {data.employeeName || "User"} 👋</Text>
+// //             <Text style={styles.heroHeading}>Welcome Back!</Text>
+// //             <Text style={styles.heroSubtitle}>Have a productive day ahead.</Text>
+// //           </View>
+// //           <Feather name="award" size={54} color="#ffffff" style={{ opacity: 0.8 }} />
+// //         </View>
+
+// //         {/* --- ATTENDANCE SUMMARY COUNT ROW GRID --- */}
+// //         <View style={styles.sectionHeaderRow}>
+// //           <Text style={styles.sectionHeading}>Attendance Summary</Text>
+// //           <TouchableOpacity style={styles.textActionLink}>
+// //             <Text style={styles.actionLinkText}>This Month</Text>
+// //             <Feather name="chevron-down" size={14} color="#435ffd" />
+// //           </TouchableOpacity>
+// //         </View>
+
+// //         <View style={styles.metricStatsRow}>
+// //           <View style={styles.metricItemBlock}>
+// //             <View style={[styles.iconContainer, { backgroundColor: '#f0fdf4' }]}>
+// //               <Feather name="calendar" size={18} color="#10b981" />
+// //             </View>
+// //             <Text style={styles.metricCountText}>{data.summary.present}</Text>
+// //             <Text style={[styles.metricLabelSubtitle, { color: '#10b981' }]}>Present</Text>
+// //           </View>
+// //           <View style={styles.metricItemBlock}>
+// //             <View style={[styles.iconContainer, { backgroundColor: '#fef2f2' }]}>
+// //               <Feather name="users" size={18} color="#ef4444" />
+// //             </View>
+// //             <Text style={styles.metricCountText}>{data.summary.absent}</Text>
+// //             <Text style={[styles.metricLabelSubtitle, { color: '#ef4444' }]}>Absent</Text>
+// //           </View>
+// //           <View style={styles.metricItemBlock}>
+// //             <View style={[styles.iconContainer, { backgroundColor: '#e0e7ff' }]}>
+// //               <Feather name="user" size={18} color="#6366f1" />
+// //             </View>
+// //             <Text style={styles.metricCountText}>{data.summary.leave}</Text>
+// //             <Text style={[styles.metricLabelSubtitle, { color: '#6366f1' }]}>On Leave</Text>
+// //           </View>
+// //           <View style={[styles.metricItemBlock, { borderRightWidth: 0 }]}>
+// //             <View style={[styles.iconContainer, { backgroundColor: '#fff7ed' }]}>
+// //               <Feather name="clock" size={18} color="#ff7a00" />
+// //             </View>
+// //             <Text style={styles.metricCountText}>{data.summary.halfDay}</Text>
+// //             <Text style={[styles.metricLabelSubtitle, { color: '#ff7a00' }]}>Half Day</Text>
+// //           </View>
+// //         </View>
+
+// //         {/* --- TODAY'S TRACKING LOGS BREAKDOWN BLOCK --- */}
+// //         <View style={styles.sectionHeaderRow}>
+// //           <Text style={styles.sectionHeading}>Today's Log Details</Text>
+// //           <TouchableOpacity onPress={() => router.push("/attendance")} style={styles.textActionLink}>
+// //             <Text style={styles.actionLinkText}>View Calendar</Text>
+// //           </TouchableOpacity>
+// //         </View>
+
+// //         <View style={styles.sectionWrapperCard}>
+// //           <View style={styles.logGridRow}>
+// //             <View style={styles.logDetailBlockCell}>
+// //               <View style={[styles.logIconWrapper, { backgroundColor: '#e6f4ea' }]}>
+// //                 <Feather name="check-circle" size={16} color="#10b981" />
+// //               </View>
+// //               <Text style={styles.logMetaLabel}>Check In</Text>
+// //               <Text style={styles.logMetaValue}>{data.todayLog.checkIn}</Text>
+// //             </View>
+
+// //             <View style={styles.logDetailBlockCell}>
+// //               <View style={[styles.logIconWrapper, { backgroundColor: '#fce8e6' }]}>
+// //                 <Feather name="log-out" size={16} color="#ef4444" />
+// //               </View>
+// //               <Text style={styles.logMetaLabel}>Check Out</Text>
+// //               <Text style={styles.logMetaValue}>{data.todayLog.checkOut}</Text>
+// //             </View>
+
+// //             <View style={styles.logDetailBlockCell}>
+// //               <View style={[styles.logIconWrapper, { backgroundColor: '#e8eaf6' }]}>
+// //                 <Feather name="watch" size={16} color="#3f51b5" />
+// //               </View>
+// //               <Text style={styles.logMetaLabel}>Working Hours</Text>
+// //               <Text style={styles.logMetaValue}>{data.todayLog.workingHours}</Text>
+// //             </View>
+
+// //             <View style={styles.logDetailBlockCell}>
+// //               <View style={[styles.logIconWrapper, { backgroundColor: '#e0f2fe' }]}>
+// //                 <Feather name="info" size={16} color="#0284c7" />
+// //               </View>
+// //               <Text style={styles.logMetaLabel}>Status</Text>
+// //               <Text 
+// //                 style={[
+// //                   styles.logMetaValue, 
+// //                   { 
+// //                     fontWeight: '700',
+// //                     color: data.todayLog.status === "Active" || data.todayLog.status === "Present" ? '#10b981' : '#ef4444' 
+// //                   }
+// //                 ]}
+// //               >
+// //                 {data.todayLog.status}
+// //               </Text>
+// //             </View>
+// //           </View>
+// //         </View>
+
+// //         {/* --- THIS MONTH OVERVIEW CIRCLE CARD WITH CHART LEGENDS --- */}
+// //         <View style={styles.sectionHeaderRow}>
+// //           <Text style={styles.sectionTitle}>This Month's Attendance Summary</Text>
+// //           <TouchableOpacity style={styles.textActionLink}>
+// //             <Text style={styles.actionLinkText}>View Details</Text>
+// //           </TouchableOpacity>
+// //         </View>
+
+// //         <View style={styles.chartFlexPanelCard}>
+// //           {(() => {
+// //             const total = data.summary.totalDays || 1; 
+            
+// //             const presentRatio = data.summary.present / total;
+// //             const absentRatio = data.summary.absent / total;
+// //             const leaveRatio = data.summary.leave / total;
+
+// //             const presentAndAbsent = presentRatio + absentRatio;
+
+// //             return (
+// //               <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%' }}>
+// //                 {/* --- DETAILED SPLIT CIRCLE GAUGE ASSEMBLY --- */}
+// //                 <View style={{ width: 100, height: 100, justifyContent: 'center', alignItems: 'center' }}>
+                  
+// //                   {/* LAYER 1: Base Track Gray structural ring */}
+// //                   <View style={[
+// //                     styles.radialProgressGraphWrapper, 
+// //                     { borderColor: '#cbd5e1', position: 'absolute' }
+// //                   ]} />
+
+// //                   {/* LAYER 2: Half Day Segment Overlay (Orange Color) */}
+// //                   {data.summary.halfDay > 0 && (
+// //                     <View style={[
+// //                       styles.radialProgressGraphWrapper, 
+// //                       { 
+// //                         position: 'absolute',
+// //                         borderTopColor: '#ff7a00',
+// //                         borderLeftColor: '#ff7a00',
+// //                         borderBottomColor: '#ff7a00',
+// //                         borderRightColor: '#ff7a00',
+// //                       }
+// //                     ]} />
+// //                   )}
+
+// //                   {/* LAYER 3: Leave Segment Track Overrides (Indigo Color) */}
+// //                   {data.summary.leave > 0 && (
+// //                     <View style={[
+// //                       styles.radialProgressGraphWrapper, 
+// //                       { 
+// //                         position: 'absolute',
+// //                         borderTopColor: '#6366f1',
+// //                         borderLeftColor: presentAndAbsent > 0.25 ? '#6366f1' : 'transparent',
+// //                         borderBottomColor: presentAndAbsent > 0.50 ? '#6366f1' : 'transparent',
+// //                         borderRightColor: presentAndAbsent > 0.75 ? '#6366f1' : 'transparent',
+// //                       }
+// //                     ]} />
+// //                   )}
+
+// //                   {/* LAYER 4: Absent Segment Track Overrides (Red Color) */}
+// //                   {data.summary.absent > 0 && (
+// //                     <View style={[
+// //                       styles.radialProgressGraphWrapper, 
+// //                       { 
+// //                         position: 'absolute',
+// //                         borderTopColor: '#ef4444',
+// //                         borderLeftColor: presentRatio > 0.25 ? '#ef4444' : 'transparent',
+// //                         borderBottomColor: presentRatio > 0.50 ? '#ef4444' : 'transparent',
+// //                         borderRightColor: presentRatio > 0.75 ? '#ef4444' : 'transparent',
+// //                       }
+// //                     ]} />
+// //                   )}
+
+// //                   {/* LAYER 5: Present Segment Track Overrides (Green Color Main Arc) */}
+// //                   {data.summary.present > 0 && (
+// //                     <View style={[
+// //                       styles.radialProgressGraphWrapper, 
+// //                       { 
+// //                         position: 'absolute',
+// //                         borderTopColor: '#10b981',
+// //                         borderLeftColor: presentRatio > 0.25 ? '#10b981' : 'transparent',
+// //                         borderBottomColor: presentRatio > 0.50 ? '#10b981' : 'transparent',
+// //                         borderRightColor: presentRatio > 0.75 ? '#10b981' : 'transparent',
+// //                       }
+// //                     ]} />
+// //                   )}
+
+// //                   {/* CENTRAL HOLE MASK */}
+// //                   <View style={[
+// //                     styles.radialGraphInnerHole, 
+// //                     { position: 'absolute', backgroundColor: '#ffffff', width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center' }
+// //                   ]}>
+// //                     <Text style={styles.radialGraphCenterNumber}>{data.summary.totalDays}</Text>
+// //                     <Text style={styles.radialGraphCenterSublabel}>Total Days</Text>
+// //                   </View>
+// //                 </View>
+
+// //                 {/* --- CHART LEGENDS --- */}
+// //                 <View style={styles.chartLegendGridList}>
+// //                   <View style={styles.chartLegendItemRow}>
+// //                     <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#10b981' }]} />
+// //                     <Text style={styles.legendLabelText}>Present</Text>
+// //                     <Text style={styles.legendValueMetricsText}>{data.summary.present} ({presentPct.toFixed(0)}%)</Text>
+// //                   </View>
+// //                   <View style={styles.chartLegendItemRow}>
+// //                     <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#ef4444' }]} />
+// //                     <Text style={styles.legendLabelText}>Absent</Text>
+// //                     <Text style={styles.legendValueMetricsText}>{data.summary.absent} ({absentPct.toFixed(0)}%)</Text>
+// //                   </View>
+// //                   <View style={styles.chartLegendItemRow}>
+// //                     <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#6366f1' }]} />
+// //                     <Text style={styles.legendLabelText}>On Leave</Text>
+// //                     <Text style={styles.legendValueMetricsText}>{data.summary.leave} ({leavePct.toFixed(0)}%)</Text>
+// //                   </View>
+// //                   <View style={styles.chartLegendItemRow}>
+// //                     <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#ff7a00' }]} />
+// //                     <Text style={styles.legendLabelText}>Half Day</Text>
+// //                     <Text style={styles.legendValueMetricsText}>{data.summary.halfDay} ({halfDayPct.toFixed(0)}%)</Text>
+// //                   </View>
+// //                 </View>
+// //               </View>
+// //             );
+// //           })()}
+// //         </View>
+
+// //         {/* --- UPCOMING EVENTS LIST --- */}
+// //         <View style={styles.sectionHeaderRow}>
+// //           <Text style={styles.sectionHeading}>Upcoming Events</Text>
+// //           <TouchableOpacity style={styles.textActionLink}>
+// //             <Text style={styles.actionLinkText}>View All</Text>
+// //           </TouchableOpacity>
+// //         </View>
+
+// //         <View style={styles.eventsStackListFrame}>
+// //           {data.upcomingEvents.length === 0 ? (
+// //             <Text style={styles.emptyFeedMessage}>No upcoming events found inside backend rows.</Text>
+// //           ) : (
+// //             data.upcomingEvents.map((event) => (
+// //               <View key={event.id} style={styles.eventItemRowCard}>
+// //                 <View style={styles.eventCalendarBadgeCell}>
+// //                   <Text style={styles.eventCalendarMonthText}>{event.monthStr}</Text>
+// //                   <Text style={styles.eventCalendarDayText}>{event.dayNum}</Text>
+// //                 </View>
+// //                 <View style={styles.eventMetaDetailsGroup}>
+// //                   <Text style={styles.eventTitleString}>{event.title}</Text>
+// //                   <Text style={styles.eventOccurrenceSubtext}>{event.dateStr}</Text>
+// //                 </View>
+// //                 <View style={[styles.eventTypeChipBadge, { backgroundColor: `${event.typeColor || '#435ffd'}15` }]}>
+// //                   <Text style={[styles.eventTypeChipText, { color: event.typeColor || '#435ffd' }]}>{event.type}</Text>
+// //                 </View>
+// //               </View>
+// //             ))
+// //           )}
+// //         </View>
+
+// //         {/* --- QUICK ACTIONS --- */}
+// //         <Text style={styles.sectionHeading}>Quick Actions</Text>
+// //         <View style={styles.quickActionsGridBlock}>
+// //           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => setModalVisible(true)}>
+// //             <View style={styles.actionIconWrapperCircle}>
+// //               <Feather name="edit-3" size={20} color="#435ffd" />
+// //             </View>
+// //             <Text style={styles.actionButtonLabelText}>Apply Leave</Text>
+// //           </TouchableOpacity>
+
+// //           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => router.push("/attendance")}>
+// //             <View style={styles.actionIconWrapperCircle}>
+// //               <Feather name="calendar" size={20} color="#435ffd" />
+// //             </View>
+// //             <Text style={styles.actionButtonLabelText}>Attendance</Text>
+// //           </TouchableOpacity>
+
+// //           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => router.push("/attendance/leave")}>
+// //             <View style={styles.actionIconWrapperCircle}>
+// //               <Feather name="folder" size={20} color="#435ffd" />
+// //             </View>
+// //             <Text style={styles.actionButtonLabelText}>My Leaves</Text>
+// //           </TouchableOpacity>
+
+// //           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => router.push("/payslip/allPayslips")}>
+// //             <View style={styles.actionIconWrapperCircle}>
+// //               <Feather name="file-text" size={20} color="#435ffd" />
+// //             </View>
+// //             <Text style={styles.actionButtonLabelText}>Payslip</Text>
+// //           </TouchableOpacity>
+// //         </View>
+
+// //         <View style={{ height: 100 }} />
+// //       </ScrollView>
+
+// //       <LeaveModal visible={modalVisible} onClose={() => setModalVisible(false)} />
+// //     </View>
+// //   )
+// // }
+
+// // const styles = StyleSheet.create({
+// //   container: { flex: 1, backgroundColor: "#fafbfe" },
+// //   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fafbfe' },
+// //   loadingText: { marginTop: 12, fontSize: 14, color: '#64748b', fontWeight: '600' },
+// //   header: {
+// //     flexDirection: "row",
+// //     justifyContent: "space-between",
+// //     alignItems: "center",
+// //     paddingHorizontal: 20,
+// //     paddingTop: Platform.OS === "ios" ? 55 : 16,
+// //     paddingBottom: 16,
+// //     backgroundColor: "#ffffff",
+// //     borderBottomWidth: 1,
+// //     borderColor: '#f1f5f9',
+// //   },
+// //   headerTitle: {
+// //     fontSize: 20, 
+// //     fontWeight: "700", 
+// //     color: "#1e293b" 
+// //   },
+// //   headerRightGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+// //   headerIconButton: { 
+// //     width: 40, 
+// //     height: 40, 
+// //     borderRadius: 20, 
+// //     alignItems: 'center', 
+// //     justifyContent: 'center', 
+// //     position: 'relative' 
+// //   },
+// //   notificationBadgeNode: { position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444', zIndex: 3 },
+// //   avatarTouchTarget: { marginLeft: 4 },
+// //   profileAvatarImg: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#e2e8f0' },
+// //   contentScroll: { flex: 1, paddingHorizontal: 20 },
+// //   welcomeHeroCard: {
+// //     backgroundColor: '#5046e5',
+// //     borderRadius: 24,
+// //     padding: 24,
+// //     flexDirection: 'row',
+// //     alignItems: 'center',
+// //     justifyContent: 'space-between',
+// //     marginTop: 20,
+// //     overflow: 'hidden',
+// //   },
+// //   heroTextFrame: { flex: 1, paddingRight: 12 },
+// //   heroSalutation: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '500' },
+// //   heroHeading: { color: '#ffffff', fontSize: 24, fontWeight: '800', marginVertical: 4 },
+// //   heroSubtitle: { color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '400' },
+// //   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, marginBottom: 4 },
+// //   sectionHeading: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginTop: 24, marginBottom: 12 },
+// //   sectionTitle: {
+// //     fontSize: 16,
+// //     fontWeight: "700",
+// //     color: '#0f172a',
+// //     marginTop: 24,
+// //     marginBottom: 12,
+// //     justifyContent: 'space-between'
+// //   },
+// //   textActionLink: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+// //   actionLinkText: { fontSize: 13, fontWeight: '600', color: '#435ffd' },
+// //   metricStatsRow: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 16, paddingVertical: 16, borderWidth: 1, borderColor: '#f1f5f9' },
+// //   metricItemBlock: { flex: 1, alignItems: 'center', borderRightWidth: 1, borderRightColor: '#f1f5f9' },
+// //   iconContainer: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+// //   metricCountText: { fontSize: 20, fontWeight: '700' },
+// //   metricLabelSubtitle: { fontSize: 12, fontWeight: '500', marginTop: 2 },
+// //   sectionWrapperCard: { backgroundColor: '#ffffff', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#f1f5f9' },
+// //   logGridRow: { flexDirection: 'row', justifyContent: 'space-between' },
+// //   logDetailBlockCell: { flex: 1, alignItems: 'center' },
+// //   logIconWrapper: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+// //   logMetaLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+// //   logMetaValue: { fontSize: 13, fontWeight: '700', color: '#1e293b', marginTop: 4 },
+// //   chartFlexPanelCard: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 20, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+// //   radialProgressGraphWrapper: { width: 100, height: 100, borderRadius: 50, borderWidth: 10, position: 'relative' },
+// //   radialGraphInnerHole: { alignItems: 'center', justifyContent: 'center' },
+// //   radialGraphCenterNumber: { fontSize: 20, fontWeight: '800', color: '#1e293b' },
+// //   radialGraphCenterSublabel: { fontSize: 9, color: '#64748b', fontWeight: '600', textTransform: 'uppercase' },
+// //   chartLegendGridList: { flex: 1, paddingLeft: 24, gap: 10 },
+// //   chartLegendItemRow: { flexDirection: 'row', alignItems: 'center' },
+// //   legendIndicatorBoxDot: { width: 10, height: 10, borderRadius: 3, marginRight: 8 },
+// //   legendLabelText: { fontSize: 13, color: '#64748b', fontWeight: '500', flex: 1 },
+// //   legendValueMetricsText: { fontSize: 13, fontWeight: '600', color: '#1e293b' },
+// //   eventsStackListFrame: { gap: 12 },
+// //   eventItemRowCard: { flexDirection: 'row', backgroundColor: '#ffffff', padding: 12, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+// //   eventCalendarBadgeCell: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
+// //   eventCalendarMonthText: { fontSize: 10, fontWeight: '700', color: '#ef4444', textTransform: 'uppercase' },
+// //   eventCalendarDayText: { fontSize: 16, fontWeight: '700', color: '#1e293b', marginTop: 1 },
+// //   eventMetaDetailsGroup: { flex: 1, paddingLeft: 12 },
+// //   eventTitleString: { fontSize: 14, fontWeight: '600', color: '#1e293b' },
+// //   eventOccurrenceSubtext: { fontSize: 12, color: '#64748b', marginTop: 2 },
+// //   eventTypeChipBadge: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
+// //   eventTypeChipText: { fontSize: 11, fontWeight: '600' },
+// //   emptyFeedMessage: { textAlign: 'center', paddingVertical: 20, color: '#94a3b8', fontSize: 13 },
+// //   quickActionsGridBlock: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginTop: 4 },
+// //   actionGridCellButton: { flex: 1, backgroundColor: '#ffffff', borderRadius: 16, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+// //   actionIconWrapperCircle: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#f0f4ff', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+// //   actionButtonLabelText: { fontSize: 11, fontWeight: '600', color: '#334155' }
+// // })
+// "use client"
+
+// import { useState, useEffect } from "react"
+// import { 
+//   View, 
+//   Text, 
+//   StyleSheet, 
+//   ScrollView, 
+//   TouchableOpacity, 
+//   Image, 
+//   StatusBar, 
+//   Platform, 
+//   ActivityIndicator,
+//   Alert 
+// } from "react-native"
+// import { Feather } from "@expo/vector-icons"
+// import { useRouter } from "expo-router"
+// import { format } from "date-fns"
+// import LeaveModal from "@/components/attendance/LeaveModal"
+
+// interface DashboardData {
+//   employeeName: string;
+//   avatarUrl: string;
+//   todayLog: {
+//     checkIn: string;
+//     checkOut: string;
+//     workingHours: string;
+//     status: string;
+//   };
+//   summary: {
+//     present: number;
+//     absent: number;
+//     leave: number;
+//     halfDay: number;
+//     totalDays: number;
+//   };
+//   upcomingEvents: Array<{
+//     id: string;
+//     title: string;
+//     dateStr: string;
+//     dayNum: string;
+//     monthStr: string;
+//     type: "Event" | "Holiday" | "Update";
+//     typeColor: string;
+//   }>;
+// }
+
+// export default function DashboardScreen() {
+//   const router = useRouter()
+//   const [loading, setLoading] = useState<boolean>(true)
+//   const [modalVisible, setModalVisible] = useState<boolean>(false)
+  
+//   const [data, setData] = useState<DashboardData>({
+//     employeeName: "",
+//     avatarUrl: "",
+//     todayLog: { checkIn: "--:--", checkOut: "--:--", workingHours: "00h 00m", status: "-" },
+//     summary: { present: 0, absent: 0, leave: 0, halfDay: 0, totalDays: 0 },
+//     upcomingEvents: []
+//   })
+
+//   const fetchDashboardData = async () => {
+//     try {
+//       setLoading(true)
+//       const response = await fetch("${API_BASE_URL}/fetch-my-attendance-history-mobile", {
+//         method: "GET",
+//         headers: { "Content-Type": "application/json" },
+//       })
+      
+//       if (response.ok) {
+//         const dataPayload = await response.json();
+//         const history = dataPayload.attendanceHistory || [];
+        
+//         const targetMonth = new Date().getMonth() + 1
+//         const targetYear = new Date().getFullYear()
+//         const todayStr = format(new Date(), "dd/MM/yyyy")
+//         const today = new Date()
+//         today.setHours(0, 0, 0, 0)
+
+//         const daysInMonth = new Date(targetYear, targetMonth, 0).getDate()
+        
+//         let presentCount = 0
+//         let absentCount = 0
+//         let leaveCount = 0
+//         let halfDayCount = 0
+        
+//         let todayLog = { checkIn: "--:--", checkOut: "--:--", workingHours: "00h 00m", status: "Absent" }
+//         let employeeName = "Employee"
+
+//         for (let day = 1; day <= daysInMonth; day++) {
+//           const targetDateObj = new Date(targetYear, targetMonth - 1, day)
+//           const dayOfWeek = targetDateObj.getDay()
+//           const formattedRealDate = `${String(day).padStart(2, "0")}/${String(targetMonth).padStart(2, "0")}/${targetYear}`
+          
+//           const realEntry = history.find((item: any) => item.date === formattedRealDate)
+
+//           if (realEntry) {
+//             presentCount++
+//             if (realEntry.name) employeeName = realEntry.name
+//           } else if (targetDateObj > today) {
+//             // Future dates ignored
+//           } else if (dayOfWeek === 0 || dayOfWeek === 6) {
+//             // Weekends ignored
+//           } else {
+//             absentCount++
+//           }
+//         }
+
+//         const todayRecord = history.find((item: any) => item.date === todayStr)
+//         if (todayRecord) {
+//           todayLog = {
+//             checkIn: todayRecord.start_time && todayRecord.start_time !== "-" ? todayRecord.start_time.substring(0, 5) : "--:--",
+//             checkOut: todayRecord.end_time && todayRecord.end_time !== "-" ? todayRecord.end_time.substring(0, 5) : "--:--",
+//             workingHours: todayRecord.work_hours && todayRecord.work_hours !== "-" ? todayRecord.work_hours : "00h 00m",
+//             status: todayRecord.start_time && (!todayRecord.end_time || todayRecord.end_time === "-") ? "Active" : "Present"
+//           }
+//         }
+
+//         const totalCalculatedDays = presentCount + absentCount + leaveCount + halfDayCount
+
+//         setData({
+//           employeeName: employeeName,
+//           avatarUrl: "", 
+//           todayLog: todayLog,
+//           summary: {
+//             present: presentCount,
+//             absent: absentCount,
+//             leave: leaveCount,
+//             halfDay: halfDayCount,
+//             totalDays: totalCalculatedDays
+//           },
+//           upcomingEvents: []
+//         })
+
+//       } else {
+//         Alert.alert("Execution Error", "Failed to compile records.")
+//       }
+//     } catch (error) {
+//       console.error("Dashboard engine error:", error)
+//     } finally {
+//       setLoading(false)
+//     }
+//   }
+
+//   useEffect(() => {
+//     fetchDashboardData()
+//   }, [])
+
+//   if (loading) {
+//     return (
+//       <View style={styles.loadingContainer}>
+//         <ActivityIndicator size="large" color="#3b52f6" />
+//         <Text style={styles.loadingText}>Syncing Database Records...</Text>
+//       </View>
+//     )
+//   }
+
+//   const total = data.summary.totalDays || 1
+//   const presentPct = (data.summary.present / total) * 100
+//   const absentPct = (data.summary.absent / total) * 100
+//   const leavePct = (data.summary.leave / total) * 100
+//   const halfDayPct = (data.summary.halfDay / total) * 100
+
+//   // Fallback image handling
+//   const avatarSource = data.avatarUrl && data.avatarUrl.trim() !== ""
+//     ? { uri: data.avatarUrl }
+//     : { uri: "https://avatar.iran.liara.run/public/32" };
+
+//   // Pure CSS calculation for the progress circle mapping layout
+//   const rotationDegrees = Math.min(Math.max((presentPct / 100) * 360, 0), 360);
+
+//   return (
+//     <View style={styles.container}>
+//       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
+
+//       {/* --- HEADER --- */}
+//       <View style={styles.header}>
+//         <TouchableOpacity style={styles.headerIconButton}>
+//           <Feather name="menu" size={24} color="#1e293b" />
+//         </TouchableOpacity>
+//         <Text style={styles.headerTitle}>Dashboard</Text>
+//         <View style={styles.headerRightGroup}>
+//           <TouchableOpacity style={styles.headerIconButton}>
+//             <View style={styles.notificationBadgeNode} />
+//             <Feather name="bell" size={22} color="#1e293b" />
+//           </TouchableOpacity>
+          
+//           <TouchableOpacity onPress={() => router.push("/profile")} style={styles.avatarTouchTarget}>
+//             <Image source={avatarSource} style={styles.profileAvatarImg} />
+//           </TouchableOpacity>
+//         </View>
+//       </View>
+
+//       <ScrollView style={styles.contentScroll} showsVerticalScrollIndicator={false}>
+        
+//         {/* --- WELCOME HERO --- */}
+//         <View style={styles.welcomeHeroCard}>
+//           <View style={styles.heroTextFrame}>
+//             <Text style={styles.heroSalutation}>Good Morning, {data.employeeName || "User"} 👋</Text>
+//             <Text style={styles.heroHeading}>Welcome Back!</Text>
+//             <Text style={styles.heroSubtitle}>Have a productive day ahead.</Text>
+//           </View>
+//           <Feather name="award" size={54} color="#ffffff" style={{ opacity: 0.8 }} />
+//         </View>
+
+//         {/* --- ATTENDANCE SUMMARY COUNTS --- */}
+//         <View style={styles.sectionHeaderRow}>
+//           <Text style={styles.sectionHeading}>Attendance Summary</Text>
+//           <TouchableOpacity style={styles.textActionLink}>
+//             <Text style={styles.actionLinkText}>This Month</Text>
+//             <Feather name="chevron-down" size={14} color="#435ffd" />
+//           </TouchableOpacity>
+//         </View>
+
+//         <View style={styles.metricStatsRow}>
+//           <View style={styles.metricItemBlock}>
+//             <View style={[styles.iconContainer, { backgroundColor: '#f0fdf4' }]}>
+//               <Feather name="calendar" size={18} color="#10b981" />
+//             </View>
+//             <Text style={styles.metricCountText}>{data.summary.present}</Text>
+//             <Text style={[styles.metricLabelSubtitle, { color: '#10b981' }]}>Present</Text>
+//           </View>
+//           <View style={styles.metricItemBlock}>
+//             <View style={[styles.iconContainer, { backgroundColor: '#fef2f2' }]}>
+//               <Feather name="users" size={18} color="#ef4444" />
+//             </View>
+//             <Text style={styles.metricCountText}>{data.summary.absent}</Text>
+//             <Text style={[styles.metricLabelSubtitle, { color: '#ef4444' }]}>Absent</Text>
+//           </View>
+//           <View style={styles.metricItemBlock}>
+//             <View style={[styles.iconContainer, { backgroundColor: '#e0e7ff' }]}>
+//               <Feather name="user" size={18} color="#6366f1" />
+//             </View>
+//             <Text style={styles.metricCountText}>{data.summary.leave}</Text>
+//             <Text style={[styles.metricLabelSubtitle, { color: '#6366f1' }]}>On Leave</Text>
+//           </View>
+//           <View style={[styles.metricItemBlock, { borderRightWidth: 0 }]}>
+//             <View style={[styles.iconContainer, { backgroundColor: '#fff7ed' }]}>
+//               <Feather name="clock" size={18} color="#ff7a00" />
+//             </View>
+//             <Text style={styles.metricCountText}>{data.summary.halfDay}</Text>
+//             <Text style={[styles.metricLabelSubtitle, { color: '#ff7a00' }]}>Half Day</Text>
+//           </View>
+//         </View>
+
+//         {/* --- TODAY'S LOGS --- */}
+//         <View style={styles.sectionHeaderRow}>
+//           <Text style={styles.sectionHeading}>Today's Log Details</Text>
+//           <TouchableOpacity onPress={() => router.push("/attendance")} style={styles.textActionLink}>
+//             <Text style={styles.actionLinkText}>View Calendar</Text>
+//           </TouchableOpacity>
+//         </View>
+
+//         <View style={styles.sectionWrapperCard}>
+//           <View style={styles.logGridRow}>
+//             <View style={styles.logDetailBlockCell}>
+//               <View style={[styles.logIconWrapper, { backgroundColor: '#e6f4ea' }]}>
+//                 <Feather name="check-circle" size={16} color="#10b981" />
+//               </View>
+//               <Text style={styles.logMetaLabel}>Check In</Text>
+//               <Text style={styles.logMetaValue}>{data.todayLog.checkIn}</Text>
+//             </View>
+
+//             <View style={styles.logDetailBlockCell}>
+//               <View style={[styles.logIconWrapper, { backgroundColor: '#fce8e6' }]}>
+//                 <Feather name="log-out" size={16} color="#ef4444" />
+//               </View>
+//               <Text style={styles.logMetaLabel}>Check Out</Text>
+//               <Text style={styles.logMetaValue}>{data.todayLog.checkOut}</Text>
+//             </View>
+
+//             <View style={styles.logDetailBlockCell}>
+//               <View style={[styles.logIconWrapper, { backgroundColor: '#e8eaf6' }]}>
+//                 <Feather name="watch" size={16} color="#3f51b5" />
+//               </View>
+//               <Text style={styles.logMetaLabel}>Working Hours</Text>
+//               <Text style={styles.logMetaValue}>{data.todayLog.workingHours}</Text>
+//             </View>
+
+//             <View style={styles.logDetailBlockCell}>
+//               <View style={[styles.logIconWrapper, { backgroundColor: '#e0f2fe' }]}>
+//                 <Feather name="info" size={16} color="#0284c7" />
+//               </View>
+//               <Text style={styles.logMetaLabel}>Status</Text>
+//               <Text style={[styles.logMetaValue, { fontWeight: '700', color: data.todayLog.status === "Active" || data.todayLog.status === "Present" ? '#10b981' : '#ef4444' }]}>
+//                 {data.todayLog.status}
+//               </Text>
+//             </View>
+//           </View>
+//         </View>
+
+//         {/* --- FIXED CIRCLE CHART CARD --- */}
+//         <View style={styles.sectionHeaderRow}>
+//           <Text style={styles.sectionTitle}>This Month's Attendance Summary</Text>
+//           <TouchableOpacity style={styles.textActionLink}>
+//             <Text style={styles.actionLinkText}>View Details</Text>
+//           </TouchableOpacity>
+//         </View>
+
+//         <View style={styles.chartFlexPanelCard}>
+//           <View style={styles.circleChartWrapper}>
+            
+//             {/* The structural base circle wrapper */}
+//             <View style={styles.progressCircleMainFrame}>
+              
+//               {/* Base Color Track (Absent Red background layer) */}
+//               <View style={[styles.circleHalfLayer, styles.circleLeftBackground, { borderColor: '#ef4444' }]} />
+//               <View style={[styles.circleHalfLayer, styles.circleRightBackground, { borderColor: '#ef4444' }]} />
+
+//               {/* Dynamic Present Green Segment Overlays using crisp 180deg threshold wrappers */}
+//               {rotationDegrees <= 180 ? (
+//                 <View style={[styles.circleHalfLayer, styles.circleRightBackground, { borderColor: '#10b981', transform: [{ rotate: `${rotationDegrees}deg` }] }]} />
+//               ) : (
+//                 <>
+//                   <View style={[styles.circleHalfLayer, styles.circleRightBackground, { borderColor: '#10b981', transform: [{ rotate: '180deg' }] }]} />
+//                   <View style={[styles.circleHalfLayer, styles.circleLeftBackground, { borderColor: '#10b981', transform: [{ rotate: `${rotationDegrees - 180}deg` }] }]} />
+//                 </>
+//               )}
+
+//               {/* Inner Hole Element to hold the text cleanly */}
+//               <View style={styles.circleInnerCenterMask}>
+//                 <Text style={styles.radialGraphCenterNumber}>{data.summary.totalDays}</Text>
+//                 <Text style={styles.radialGraphCenterSublabel}>Total Days</Text>
+//               </View>
+//             </View>
+
+//             {/* CHART LEGENDS */}
+//             <View style={styles.chartLegendGridList}>
+//               <View style={styles.chartLegendItemRow}>
+//                 <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#10b981' }]} />
+//                 <Text style={styles.legendLabelText}>Present</Text>
+//                 <Text style={styles.legendValueMetricsText}>{data.summary.present} ({presentPct.toFixed(0)}%)</Text>
+//               </View>
+//               <View style={styles.chartLegendItemRow}>
+//                 <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#ef4444' }]} />
+//                 <Text style={styles.legendLabelText}>Absent</Text>
+//                 <Text style={styles.legendValueMetricsText}>{data.summary.absent} ({absentPct.toFixed(0)}%)</Text>
+//               </View>
+//               <View style={styles.chartLegendItemRow}>
+//                 <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#6366f1' }]} />
+//                 <Text style={styles.legendLabelText}>On Leave</Text>
+//                 <Text style={styles.legendValueMetricsText}>{data.summary.leave} ({leavePct.toFixed(0)}%)</Text>
+//               </View>
+//               <View style={styles.chartLegendItemRow}>
+//                 <View style={[styles.legendIndicatorBoxDot, { backgroundColor: '#ff7a00' }]} />
+//                 <Text style={styles.legendLabelText}>Half Day</Text>
+//                 <Text style={styles.legendValueMetricsText}>{data.summary.halfDay} ({halfDayPct.toFixed(0)}%)</Text>
+//               </View>
+//             </View>
+
+//           </View>
+//         </View>
+
+//         {/* --- UPCOMING EVENTS --- */}
+//         <View style={styles.sectionHeaderRow}>
+//           <Text style={styles.sectionHeading}>Upcoming Events</Text>
+//           <TouchableOpacity style={styles.textActionLink}>
+//             <Text style={styles.actionLinkText}>View All</Text>
+//           </TouchableOpacity>
+//         </View>
+
+//         <View style={styles.eventsStackListFrame}>
+//           {data.upcomingEvents.length === 0 ? (
+//             <Text style={styles.emptyFeedMessage}>No upcoming events found inside backend rows.</Text>
+//           ) : (
+//             data.upcomingEvents.map((event) => (
+//               <View key={event.id} style={styles.eventItemRowCard}>
+//                 <View style={styles.eventCalendarBadgeCell}>
+//                   <Text style={styles.eventCalendarMonthText}>{event.monthStr}</Text>
+//                   <Text style={styles.eventCalendarDayText}>{event.dayNum}</Text>
+//                 </View>
+//                 <View style={styles.eventMetaDetailsGroup}>
+//                   <Text style={styles.eventTitleString}>{event.title}</Text>
+//                   <Text style={styles.eventOccurrenceSubtext}>{event.dateStr}</Text>
+//                 </View>
+//                 <View style={[styles.eventTypeChipBadge, { backgroundColor: `${event.typeColor || '#435ffd'}15` }]}>
+//                   <Text style={[styles.eventTypeChipText, { color: event.typeColor || '#435ffd' }]}>{event.type}</Text>
+//                 </View>
+//               </View>
+//             ))
+//           )}
+//         </View>
+
+//         {/* --- QUICK ACTIONS --- */}
+//         <Text style={styles.sectionHeading}>Quick Actions</Text>
+//         <View style={styles.quickActionsGridBlock}>
+//           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => setModalVisible(true)}>
+//             <View style={styles.actionIconWrapperCircle}>
+//               <Feather name="edit-3" size={20} color="#435ffd" />
+//             </View>
+//             <Text style={styles.actionButtonLabelText}>Apply Leave</Text>
+//           </TouchableOpacity>
+
+//           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => router.push("/attendance")}>
+//             <View style={styles.actionIconWrapperCircle}>
+//               <Feather name="calendar" size={20} color="#435ffd" />
+//             </View>
+//             <Text style={styles.actionButtonLabelText}>Attendance</Text>
+//           </TouchableOpacity>
+
+//           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => router.push("/attendance/leave")}>
+//             <View style={styles.actionIconWrapperCircle}>
+//               <Feather name="folder" size={20} color="#435ffd" />
+//             </View>
+//             <Text style={styles.actionButtonLabelText}>My Leaves</Text>
+//           </TouchableOpacity>
+
+//           <TouchableOpacity style={styles.actionGridCellButton} onPress={() => router.push("/payslip/allPayslips")}>
+//             <View style={styles.actionIconWrapperCircle}>
+//               <Feather name="file-text" size={20} color="#435ffd" />
+//             </View>
+//             <Text style={styles.actionButtonLabelText}>Payslip</Text>
+//           </TouchableOpacity>
+//         </View>
+
+//         <View style={{ height: 100 }} />
+//       </ScrollView>
+
+//       <LeaveModal visible={modalVisible} onClose={() => setModalVisible(false)} />
+//     </View>
+//   )
+// }
+
+// const styles = StyleSheet.create({
+//   container: { flex: 1, backgroundColor: "#fafbfe" },
+//   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fafbfe' },
+//   loadingText: { marginTop: 12, fontSize: 14, color: '#64748b', fontWeight: '600' },
+//   header: {
+//     flexDirection: "row",
+//     justifyContent: "space-between",
+//     alignItems: "center",
+//     paddingHorizontal: 20,
+//     paddingTop: Platform.OS === "ios" ? 55 : 16,
+//     paddingBottom: 16,
+//     backgroundColor: "#ffffff",
+//     borderBottomWidth: 1,
+//     borderColor: '#f1f5f9',
+//   },
+//   headerTitle: { fontSize: 20, fontWeight: "700", color: "#1e293b" },
+//   headerRightGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+//   headerIconButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+//   notificationBadgeNode: { position: 'absolute', top: 10, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444', zIndex: 3 },
+//   avatarTouchTarget: { marginLeft: 4 },
+//   profileAvatarImg: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#e2e8f0' },
+//   contentScroll: { flex: 1, paddingHorizontal: 20 },
+//   welcomeHeroCard: {
+//     backgroundColor: '#5046e5',
+//     borderRadius: 24,
+//     padding: 24,
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     justifyContent: 'space-between',
+//     marginTop: 20,
+//     overflow: 'hidden',
+//   },
+//   heroTextFrame: { flex: 1, paddingRight: 12 },
+//   heroSalutation: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '500' },
+//   heroHeading: { color: '#ffffff', fontSize: 24, fontWeight: '800', marginVertical: 4 },
+//   heroSubtitle: { color: 'rgba(255,255,255,0.9)', fontSize: 13, fontWeight: '400' },
+//   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, marginBottom: 4 },
+//   sectionHeading: { fontSize: 16, fontWeight: '700', color: '#0f172a', marginTop: 24, marginBottom: 12 },
+//   sectionTitle: { fontSize: 16, fontWeight: "700", color: '#0f172a', marginTop: 24, marginBottom: 12 },
+//   textActionLink: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+//   actionLinkText: { fontSize: 13, fontWeight: '600', color: '#435ffd' },
+//   metricStatsRow: { flexDirection: 'row', backgroundColor: '#ffffff', borderRadius: 16, paddingVertical: 16, borderWidth: 1, borderColor: '#f1f5f9' },
+//   metricItemBlock: { flex: 1, alignItems: 'center', borderRightWidth: 1, borderRightColor: '#f1f5f9' },
+//   iconContainer: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginBottom: 8 },
+//   metricCountText: { fontSize: 20, fontWeight: '700' },
+//   metricLabelSubtitle: { fontSize: 12, fontWeight: '500', marginTop: 2 },
+//   sectionWrapperCard: { backgroundColor: '#ffffff', borderRadius: 20, padding: 16, borderWidth: 1, borderColor: '#f1f5f9' },
+//   logGridRow: { flexDirection: 'row', justifyContent: 'space-between' },
+//   logDetailBlockCell: { flex: 1, alignItems: 'center' },
+//   logIconWrapper: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+//   logMetaLabel: { fontSize: 11, color: '#64748b', fontWeight: '500' },
+//   logMetaValue: { fontSize: 13, fontWeight: '700', color: '#1e293b', marginTop: 4 },
+  
+//   // FIXED NATIVE CSS CIRCLE CHART IMPLEMENTATION
+//   chartFlexPanelCard: { backgroundColor: '#ffffff', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#f1f5f9' },
+//   circleChartWrapper: { flexDirection: 'row', alignItems: 'center', width: '100%' },
+//   progressCircleMainFrame: { width: 100, height: 100, borderRadius: 50, overflow: 'hidden', position: 'relative', justifyContent: 'center', alignItems: 'center', backgroundColor: '#e2e8f0' },
+//   circleHalfLayer: { width: 50, height: 100, position: 'absolute', borderWidth: 10, borderRadius: 50 },
+//   circleLeftBackground: { left: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0, borderRightWidth: 0 },
+//   circleRightBackground: { right: 0, borderTopLeftRadius: 0, borderBottomLeftRadius: 0, borderLeftWidth: 0 },
+//   circleInnerCenterMask: { position: 'absolute', backgroundColor: '#ffffff', width: 80, height: 80, borderRadius: 40, justifyContent: 'center', alignItems: 'center', zIndex: 10 },
+  
+//   radialGraphCenterNumber: { fontSize: 20, fontWeight: '800', color: '#1e293b' },
+//   radialGraphCenterSublabel: { fontSize: 9, color: '#64748b', fontWeight: '600', textTransform: 'uppercase' },
+//   chartLegendGridList: { flex: 1, paddingLeft: 24, gap: 10 },
+//   chartLegendItemRow: { flexDirection: 'row', alignItems: 'center' },
+//   legendIndicatorBoxDot: { width: 10, height: 10, borderRadius: 3, marginRight: 8 },
+//   legendLabelText: { fontSize: 13, color: '#64748b', fontWeight: '500', flex: 1 },
+//   legendValueMetricsText: { fontSize: 13, fontWeight: '600', color: '#1e293b' },
+//   eventsStackListFrame: { gap: 12 },
+//   eventItemRowCard: { flexDirection: 'row', backgroundColor: '#ffffff', padding: 12, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+//   eventCalendarBadgeCell: { width: 44, height: 44, borderRadius: 10, backgroundColor: '#f1f5f9', alignItems: 'center', justifyContent: 'center' },
+//   eventCalendarMonthText: { fontSize: 10, fontWeight: '700', color: '#ef4444', textTransform: 'uppercase' },
+//   eventCalendarDayText: { fontSize: 16, fontWeight: '700', color: '#1e293b', marginTop: 1 },
+//   eventMetaDetailsGroup: { flex: 1, paddingLeft: 12 },
+//   eventTitleString: { fontSize: 14, fontWeight: '600', color: '#1e293b' },
+//   eventOccurrenceSubtext: { fontSize: 12, color: '#64748b', marginTop: 2 },
+//   eventTypeChipBadge: { paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8 },
+//   eventTypeChipText: { fontSize: 11, fontWeight: '600' },
+//   emptyFeedMessage: { textAlign: 'center', paddingVertical: 20, color: '#94a3b8', fontSize: 13 },
+//   quickActionsGridBlock: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginTop: 4 },
+//   actionGridCellButton: { flex: 1, backgroundColor: '#ffffff', borderRadius: 16, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+//   actionIconWrapperCircle: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#f0f4ff', alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+//   actionButtonLabelText: { fontSize: 11, fontWeight: '600', color: '#334155' }
+// })
+
+
+3.leave modale.tsx file
+
+import React, { useState, useEffect } from 'react';
+import {
+    StyleSheet,
+    View,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    Modal,
+    TouchableWithoutFeedback,
+    Keyboard,
+    Platform,
+    Pressable,
+    Alert,
+    Image,
+    ActivityIndicator,
+    ScrollView,
+    FlatList
+} from 'react-native';
+import { Calendar } from 'react-native-calendars';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSession } from '@/context/ContextSession';
+
+type LeaveModalProps = {
+    visible: boolean;
+    onClose: () => void;
+};
+// 1____
+type LeaveBalances = {
+    casualLeave: number;
+    sickLeave: number;
+    paidLeave: number;
+};
+
+// 2____
+// Initial Preset Options for Dropdown Menu
+const PRESET_LEAVE_TYPES = [
+    'Casual Leave (CL)',
+    'Sick Leave (SL)',
+    'Paid Leave (PL)',
+    'Maternity Leave',
+    'Paternity Leave',
+    'Bereavement Leave',
+    'Sabbatical Leave'
+];
+
+export default function LeaveModal({ visible, onClose }: LeaveModalProps) {
+    const [leaveType, setLeaveType] = useState('');
+    const [fromDate, setFromDate] = useState('');
+    const [toDate, setToDate] = useState('');
+    const [reason, setReason] = useState('');
+    
+    // Dropdown States
+    const [showDropdownModal, setShowDropdownModal] = useState(false);
+    const [searchText, setSearchText] = useState('');
+    
+    const [activeDatePicker, setActiveDatePicker] = useState<'from' | 'to' | null>(null);
+    const [markedDates, setMarkedDates] = useState({});
+    const [calendarKey, setCalendarKey] = useState(1);
+    
+    // Live Production State Nodes
+    const [balances, setBalances] = useState<LeaveBalances>({ casualLeave: 12, sickLeave: 8, paidLeave: 5 });
+    const [isLoadingBalance, setIsLoadingBalance] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    const { sessionData } = useSession();
+
+    // Fetch live data records from DB terminal
+    useEffect(() => {
+        const fetchLiveLeaveBalances = async () => {
+            if (!visible || !sessionData?.username) return;
+
+            setIsLoadingBalance(true);
+            try {
+                const response = await fetch(`${API_BASE_URL}/get-employee-leave-balances?username=${encodeURIComponent(sessionData.username)}`, {
+                    method: 'GET',
+                    headers: {
+                        // 'Content-Type': 'application/json',
+                    },
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    setBalances({
+                        casualLeave: data.casualLeave ?? 12,
+                        sickLeave: data.sickLeave ?? 8,
+                        paidLeave: data.paidLeave ?? 5,
+                    });
+                }
+            } catch (error) {
+                console.error("Network balance sync exception:", error);
+            } finally {
+                setIsLoadingBalance(false);
+            }
+        };
+
+        fetchLiveLeaveBalances();
+    }, [visible, sessionData?.username]);
+
+    const getTodayString = () => {
+        const today = new Date();
+        return today.toISOString().split('T')[0];
+    };
+
+    const handleDayPress = (day: any) => {
+        if (activeDatePicker === 'from') {
+            setFromDate(day.dateString);
+            setMarkedDates({
+                [day.dateString]: { selected: true, color: '#5e44ff', textColor: '#ffffff' }
+            });
+            setActiveDatePicker(null);
+        } else if (activeDatePicker === 'to') {
+            if (fromDate && day.dateString < fromDate) {
+                Alert.alert('Invalid Date', 'To Date cannot be earlier than From Date');
+                return;
+            }
+            setToDate(day.dateString);
+            setActiveDatePicker(null);
+        }
+    };
+
+    const formatDateDisplay = (dateString: string) => {
+        if (!dateString) return '';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
+
+    // Filter list options dynamically based on text
+    const filteredLeaveTypes = PRESET_LEAVE_TYPES.filter(type =>
+        type.toLowerCase().includes(searchText.toLowerCase())
+    );
+
+    // Shows custom entry if current search string has no perfect matches left
+    const showCustomAddOption = searchText.trim().length > 0 && 
+        !PRESET_LEAVE_TYPES.some(type => type.toLowerCase() === searchText.trim().toLowerCase());
+
+    const selectLeaveTypeOption = (val: string) => {
+        setLeaveType(val);
+        setShowDropdownModal(false);
+        setSearchText('');
+    };
+
+    const resetForm = () => {
+        setLeaveType('');
+        setFromDate('');
+        setToDate('');
+        setReason('');
+        setMarkedDates({});
+        setCalendarKey(prev => prev + 1);
+    };
+
+    
+    const handleSubmit = async () => {
+        if (!leaveType.trim() || !fromDate || !toDate || !reason.trim()) {
+            Alert.alert('Validation Error', 'Please complete all required fields.');
+            return;
+        }
+
+        setIsSubmitting(true);
+        const formData = new FormData();
+        formData.append('taskType', "timeOff");
+        formData.append('taskName', leaveType);
+        formData.append('status', "pending");
+        formData.append('teamId', sessionData?.teamId || '');
+        formData.append('follow_Date', `${fromDate} - ${toDate}`);
+        formData.append('description', reason);
+
+            try {
+            const response = await fetch('${API_BASE_URL}/add-holidays-list', {
+                method: 'POST',
+                credentials: "include",
+                headers: {
+                    // 'Content-Type': 'multipart/form-data',
+                },
+                body: formData,
+            });
+
+                 const result = await response.json();
+             if (response.ok) {
+                console.log("Server response:", result); // <-- Reading the value satisfies TypeScript
+                Alert.alert('Success', result.message || 'Leave request submitted successfully.');
+            } else {
+            }
+        } catch (error) {
+        }
+        resetForm();
+        onClose();
+    };
+       
+
+    return (
+        <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                <View style={styles.modalOverlay}>
+                    <View style={styles.modalContainer}>
+                        
+                        {/* Header Section */}
+                        <View style={styles.header}>
+                            <TouchableOpacity onPress={onClose} style={styles.backButton}>
+                                <Ionicons name="arrow-back" size={24} color="#5e44ff" />
+                            </TouchableOpacity>
+                            <Text style={styles.title}>Apply Leave</Text>
+                            <View style={{ width: 24 }} />
+                        </View>
+
+                        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                            
+                            {/* Graphic Illustration Context */}
+                            <View style={styles.illustrationWrapper}>
+                                <Image 
+                                    source={require('@/assets/images/leave_illustration.png')} 
+                                    style={styles.vectorIllustration} 
+                                    resizeMode="contain" 
+                                />
+                                <Text style={styles.illustrationTitle}>Apply for Leave</Text>
+                                <Text style={styles.illustrationSub}>
+                                    Request time off for rest, relaxation or personal reasons.
+                                </Text>
+                            </View>
+
+                            {/* Form Elements Layout */}
+                            <View style={styles.formContent}>
+                                
+                                {/* Leave Type Card Container with Dropdown Trigger */}
+                                <Text style={styles.label}>Leave Type</Text>
+                                <TouchableOpacity 
+                                    style={styles.inputContainerCard} 
+                                    onPress={() => setShowDropdownModal(true)}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={styles.iconWrapper}>
+                                        <Ionicons name="calendar-outline" size={20} color="#5e44ff" />
+                                    </View>
+                                    <Text style={[styles.dateText, leaveType ? styles.dateTextActive : null]}>
+                                        {leaveType ? leaveType : 'Select Leave Type'}
+                                    </Text>
+                                    <Ionicons name="chevron-down" size={18} color="#64748b" style={{ marginRight: 4 }} />
+                                </TouchableOpacity>
+
+                                {/* From Date Card Container */}
+                                <Text style={styles.label}>From Date</Text>
+                                <TouchableOpacity style={styles.inputContainerCard} onPress={() => setActiveDatePicker('from')}>
+                                    <View style={styles.iconWrapper}>
+                                        <Ionicons name="calendar-outline" size={20} color="#5e44ff" />
+                                    </View>
+                                    <Text style={[styles.dateText, fromDate ? styles.dateTextActive : null]}>
+                                        {fromDate ? formatDateDisplay(fromDate) : 'Select From Date'}
+                                    </Text>
+                                    <MaterialCommunityIcons name="calendar-month-outline" size={20} color="#64748b" />
+                                </TouchableOpacity>
+
+                                {/* To Date Card Container */}
+                                <Text style={styles.label}>To Date</Text>
+                                <TouchableOpacity style={styles.inputContainerCard} onPress={() => setActiveDatePicker('to')}>
+                                    <View style={styles.iconWrapper}>
+                                        <Ionicons name="calendar-outline" size={20} color="#5e44ff" />
+                                    </View>
+                                    <Text style={[styles.dateText, toDate ? styles.dateTextActive : null]}>
+                                        {toDate ? formatDateDisplay(toDate) : 'Select To Date'}
+                                    </Text>
+                                    <MaterialCommunityIcons name="calendar-month-outline" size={20} color="#64748b" />
+                                </TouchableOpacity>
+
+                                {/* Reason Structural Input Container Block */}
+                                <Text style={styles.label}>Reason</Text>
+                                <View style={[styles.inputContainerCard, styles.textAreaWrapper]}>
+                                    <View style={[styles.iconWrapper, { marginTop: 2 }]}>
+                                        <MaterialCommunityIcons name="text-box-outline" size={20} color="#5e44ff" />
+                                    </View>
+                                    <TextInput
+                                        style={styles.textArea}
+                                        placeholder="Enter reason here..."
+                                        placeholderTextColor="#94a3b8"
+                                        value={reason}
+                                        onChangeText={setReason}
+                                        multiline
+                                        numberOfLines={3}
+                                        textAlignVertical="top"
+                                    />
+                                </View>
+
+                                {/* Leave Metric Balance Grid Layout UI */}
+                                <View style={styles.balanceCard}>
+                                    <View style={styles.balanceHeader}>
+                                        <Text style={styles.balanceTitle}>Available Leave Balance</Text>
+                                        <TouchableOpacity style={styles.viewAllPosition}>
+                                            <Text style={styles.viewAllText}>View All</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                    {isLoadingBalance ? (
+                                        <ActivityIndicator size="small" color="#5e44ff" style={{ padding: 6 }} />
+                                    ) : (
+                                        <View style={styles.balanceGrid}>
+                                            <View style={styles.balanceItem}>
+                                                <Text style={styles.balanceAbbr}>CL</Text>
+                                                <Text style={styles.balanceDays}>{String(balances.casualLeave).padStart(2, '0')} Days</Text>
+                                            </View>
+                                            <View style={[styles.balanceItem, styles.borderLateral]}>
+                                                <Text style={styles.balanceAbbr}>SL</Text>
+                                                <Text style={styles.balanceDays}>{String(balances.sickLeave).padStart(2, '0')} Days</Text>
+                                            </View>
+                                            <View style={styles.balanceItem}>
+                                                <Text style={styles.balanceAbbr}>PL</Text>
+                                                <Text style={styles.balanceDays}>{String(balances.paidLeave).padStart(2, '0')} Days</Text>
+                                            </View>
+                                        </View>
+                                    )}
+                                </View>
+                            </View>
+                        </ScrollView>
+
+                        {/* Submit Action Block Button */}
+                        <View style={styles.footer}>
+                            <TouchableOpacity
+                                style={[styles.submitButton, isSubmitting && styles.submitButtonDisabled]}
+                                onPress={handleSubmit}
+                                disabled={isSubmitting}
+                            >
+                                {isSubmitting ? (
+                                    <ActivityIndicator size="small" color="#ffffff" />
+                                ) : (
+                                    <Text style={styles.submitButtonText}>Submit Request</Text>
+                                )}
+                            </TouchableOpacity>
+                        </View>
+
+                        {/* ================= SEARCHABLE LEAVE TYPE MODAL ================= */}
+                        <Modal visible={showDropdownModal} animationType="fade" transparent={true} onRequestClose={() => setShowDropdownModal(false)}>
+                            <TouchableWithoutFeedback onPress={() => setShowDropdownModal(false)}>
+                                <View style={styles.modalBackdrop}>
+                                    <Pressable style={styles.dropdownModalContent}>
+                                        <View style={styles.calendarHeaderRow}>
+                                            <Text style={styles.calendarTitle}>Select Leave Type</Text>
+                                            <TouchableOpacity onPress={() => setShowDropdownModal(false)}>
+                                                <Ionicons name="close" size={22} color="#64748b" />
+                                            </TouchableOpacity>
+                                        </View>
+
+                                        {/* Search Input Bar Field */}
+                                        <View style={styles.searchBarContainer}>
+                                            <Ionicons name="search-outline" size={18} color="#94a3b8" style={{ marginRight: 8 }} />
+                                            <TextInput
+                                                style={styles.searchInput}
+                                                placeholder="Search or add custom leave..."
+                                                placeholderTextColor="#94a3b8"
+                                                value={searchText}
+                                                onChangeText={setSearchText}
+                                                autoFocus
+                                            />
+                                        </View>
+
+                                        {/* List Grid Options Container */}
+                                        <FlatList
+                                            data={filteredLeaveTypes}
+                                            keyExtractor={(item) => item}
+                                            style={{ maxHeight: 220 }}
+                                            showsVerticalScrollIndicator={false}
+                                            renderItem={({ item }) => (
+                                                <TouchableOpacity style={styles.dropdownOptionRow} onPress={() => selectLeaveTypeOption(item)}>
+                                                    <Text style={styles.dropdownOptionText}>{item}</Text>
+                                                    {leaveType === item && <Ionicons name="checkmark" size={18} color="#5e44ff" />}
+                                                </TouchableOpacity>
+                                            )}
+                                            ListEmptyComponent={() => (
+                                                !showCustomAddOption ? (
+                                                    <Text style={styles.noResultsText}>No leave options found</Text>
+                                                ) : null
+                                            )}
+                                        />
+
+                                        {/* "Add Custom" Dynamic Option Row */}
+                                        {showCustomAddOption && (
+                                            <TouchableOpacity 
+                                                style={[styles.dropdownOptionRow, styles.customAddRow]} 
+                                                onPress={() => selectLeaveTypeOption(searchText.trim())}
+                                            >
+                                                <Ionicons name="add-circle-outline" size={20} color="#5e44ff" style={{ marginRight: 8 }} />
+                                                <Text style={styles.customAddText}>Add "{searchText.trim()}"...</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </Pressable>
+                                </View>
+                            </TouchableWithoutFeedback>
+                        </Modal>
+
+                        {/* Calendar Overlay Frame Engine context */}
+                        <Modal visible={activeDatePicker !== null} animationType="fade" transparent={true} onRequestClose={() => setActiveDatePicker(null)}>
+                            <TouchableWithoutFeedback onPress={() => setActiveDatePicker(null)}>
+                                <View style={styles.modalBackdrop}>
+                                    <Pressable style={styles.calendarModalContent}>
+                                        <View style={styles.calendarHeaderRow}>
+                                            <Text style={styles.calendarTitle}>
+                                                {activeDatePicker === 'from' ? 'Select Start Date' : 'Select End Date'}
+                                            </Text>
+                                            <TouchableOpacity onPress={() => setActiveDatePicker(null)}>
+                                                <Ionicons name="close" size={22} color="#64748b" />
+                                            </TouchableOpacity>
+                                        </View>
+                                        <Calendar
+                                            key={calendarKey}
+                                            minDate={getTodayString()}
+                                            markedDates={markedDates}
+                                            onDayPress={handleDayPress}
+                                            theme={{
+                                                todayTextColor: '#5e44ff',
+                                                selectedDayBackgroundColor: '#5e44ff',
+                                                selectedDayTextColor: '#ffffff',
+                                                arrowColor: '#5e44ff',
+                                            }}
+                                        />
+                                    </Pressable>
+                                </View>
+                            </TouchableWithoutFeedback>
+                        </Modal>
+
+                    </View>
+                </View>
+            </TouchableWithoutFeedback>
+        </Modal>
+    );
+}
+
+const styles = StyleSheet.create({
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: '#ffffff',
+    },
+    modalContainer: {
+        flex: 1,
+        backgroundColor: '#ffffff',
+        paddingTop: Platform.OS === 'ios' ? 44 : 10,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        height: 56,
+        backgroundColor: '#ffffff',
+    },
+    backButton: {
+        padding: 6,
+    },
+    title: {
+        fontSize: 19,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    scrollContent: {
+        paddingBottom: 30,
+    },
+    illustrationWrapper: {
+        alignItems: 'center',
+        paddingHorizontal: 24,
+        marginVertical: 14,
+    },
+    vectorIllustration: {
+        width: 270,
+        height: 170,
+        marginBottom: 14,
+    },
+    illustrationTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#0f172a',
+        marginBottom: 6,
+    },
+    illustrationSub: {
+        fontSize: 13,
+        color: '#64748b',
+        textAlign: 'center',
+        lineHeight: 18,
+        paddingHorizontal: 28,
+    },
+    formContent: {
+        paddingHorizontal: 20,
+    },
+    label: {
+        fontSize: 13,
+        fontWeight: '700',
+        marginBottom: 8,
+        color: '#1e293b',
+        marginTop: 12,
+    },
+    inputContainerCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#f1f5f9',
+        borderRadius: 14,
+        paddingHorizontal: 12,
+        height: 52,
+        backgroundColor: '#ffffff',
+        shadowColor: '#0f172a',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.02,
+        shadowRadius: 4,
+        elevation: 1,
+    },
+    iconWrapper: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        backgroundColor: '#f1efff',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginRight: 12,
+    },
+    dateText: {
+        flex: 1,
+        fontSize: 14,
+        color: '#94a3b8',
+    },
+    dateTextActive: {
+        color: '#1e293b',
+        fontWeight: '500',
+    },
+    textAreaWrapper: {
+        height: 85,
+        alignItems: 'flex-start',
+        paddingVertical: 10,
+    },
+    textArea: {
+        flex: 1,
+        fontSize: 14,
+        color: '#1e293b',
+        height: '100%',
+        paddingTop: 4,
+    },
+    balanceCard: {
+        backgroundColor: '#f5f4ff',
+        borderRadius: 16,
+        padding: 16,
+        marginTop: 24,
+        borderWidth: 1,
+        borderColor: '#eae7ff',
+    },
+    balanceHeader: {
+        flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 14,
+        position: 'relative',
+        width: '100%',
+    },
+    balanceTitle: {
+        fontSize: 13,
+        fontWeight: '700',
+        color: '#5e44ff',
+    },
+    viewAllPosition: {
+        position: 'absolute',
+        right: 0,
+    },
+    viewAllText: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#5e44ff',
+    },
+    balanceGrid: {
+        flexDirection: 'row',
+        justifyContent: 'space-around',
+    },
+    balanceItem: {
+        alignItems: 'center',
+        flex: 1,
+    },
+    borderLateral: {
+        borderLeftWidth: 1,
+        borderRightWidth: 1,
+        borderColor: '#e2e8f0',
+    },
+    balanceAbbr: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#64748b',
+        marginBottom: 4,
+    },
+    balanceDays: {
+        fontSize: 15,
+        fontWeight: '800',
+        color: '#0f172a',
+    },
+    modalBackdrop: {
+        flex: 1,
+        backgroundColor: 'rgba(15, 23, 42, 0.3)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    calendarModalContent: {
+        width: '88%',
+        backgroundColor: '#ffffff',
+        padding: 16,
+        borderRadius: 20,
+        elevation: 5,
+    },
+    dropdownModalContent: {
+        width: '88%',
+        backgroundColor: '#ffffff',
+        padding: 18,
+        borderRadius: 22,
+        elevation: 5,
+    },
+    calendarHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 14,
+    },
+    calendarTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#0f172a',
+    },
+    searchBarContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+        borderRadius: 10,
+        paddingHorizontal: 10,
+        height: 40,
+        backgroundColor: '#f8fafc',
+        marginBottom: 12,
+    },
+    searchInput: {
+        flex: 1,
+        fontSize: 14,
+        color: '#1e293b',
+        height: '100%',
+        padding: 0,
+    },
+    dropdownOptionRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 4,
+        borderBottomWidth: 1,
+        borderBottomColor: '#f1f5f9',
+    },
+    dropdownOptionText: {
+        fontSize: 14,
+        color: '#334155',
+    },
+    customAddRow: {
+        borderBottomWidth: 0,
+        marginTop: 6,
+        justifyContent: 'flex-start',
+    },
+    customAddText: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#5e44ff',
+    },
+    noResultsText: {
+        textAlign: 'center',
+        color: '#94a3b8',
+        fontSize: 13,
+        marginVertical: 14,
+    },
+    footer: {
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        backgroundColor: '#ffffff',
+    },
+    submitButton: {
+        backgroundColor: '#4c35de',
+        height: 52,
+        borderRadius: 16,
+        justifyContent: 'center',
+        alignItems: 'center',
+        shadowColor: '#4c35de',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
+        elevation: 2,
+    },
+    submitButtonDisabled: {
+        backgroundColor: '#94a3b8',
+    },
+    submitButtonText: {
+        color: '#ffffff',
+        fontSize: 16,
+        fontWeight: '700',
+    },
+});
+
+
+
+----------------------------------
+(tabs)/login.tsx
+________________________________
+
+import React, { useState, useRef, useEffect } from 'react';
+import {
+    StyleSheet,
+    Text,
+    View,
+    TextInput,
+    TouchableOpacity,
+    Image,
+    TouchableWithoutFeedback,
+    Alert,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    Modal,
+    ActivityIndicator,
+    Keyboard,
+    Dimensions,
+    BackHandler
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import Svg, { Path, G, Defs, LinearGradient, Stop } from 'react-native-svg';
+import { Eye, EyeOff } from 'lucide-react-native';
+import { useSession } from '../../context/ContextSession';
+import { StatusBar } from 'expo-status-bar';
+import { useDoubleTapToExit } from '@/hooks/useDoubleTapToExit';
+export default function LoginScreen() {
+    const { getSessionDetails } = useSession();
+    const [currentScreen, setCurrentScreen] = useState('login');
+    const [email, setEmail] = useState('');
+    const router = useRouter();
+    const [password, setPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [showNewPassword, setShowNewPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [passwordError, setPasswordError] = useState('');
+    const [showPassword, setShowPassword] = useState(false);
+    const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', '']);
+    const codeInputRefs = useRef<(TextInput | null)[]>(new Array(6).fill(null));
+    const [isLoggingIn, setIsLoggingIn] = useState(false);
+    const [showSuccessPopup, setShowSuccessPopup] = useState(false);
+    const [keyboardVisible, setKeyboardVisible] = useState(false);
+    const scrollViewRef = useRef<ScrollView>(null);
+    const handleExit = () => {
+        BackHandler.exitApp();
+    };
+
+    useDoubleTapToExit(handleExit);
+
+    useEffect(() => {
+        const keyboardDidShowListener = Keyboard.addListener(
+            'keyboardDidShow',
+            () => {
+                setKeyboardVisible(true);
+            }
+        );
+        const keyboardDidHideListener = Keyboard.addListener(
+            'keyboardDidHide',
+            () => {
+                setKeyboardVisible(false);
+            }
+        );
+
+        return () => {
+            keyboardDidShowListener.remove();
+            keyboardDidHideListener.remove();
+        };
+    }, []);
+
+    const dismissKeyboard = () => {
+        Keyboard.dismiss();
+    };
+
+    const togglePasswordVisibility = () => {
+        setShowPassword(!showPassword);
+    };
+    const toggleNewPasswordVisibility = () => {
+        setShowNewPassword(!showNewPassword);
+    };
+
+    const toggleConfirmPasswordVisibility = () => {
+        setShowConfirmPassword(!showConfirmPassword);
+    };
+    const handleLogin = async () => {
+        setIsLoggingIn(true);
+        try {
+            const response = await fetch("${API_BASE_URL}/employee-login-mobile?workinguserName=" + email, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+            });
+            const formData = new URLSearchParams();
+            formData.append("username", email);
+            formData.append("password", password);
+
+            const passwordRes = await fetch("${API_BASE_URL}/login-user", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formData.toString(),
+            });
+
+            const data = await passwordRes.json();
+            if (response.ok) {
+                if (data.validated) {
+                    try {
+                        const homeResponse = await fetch(`${API_BASE_URL}//login-user-mobile?username=${encodeURIComponent(email)}`, {
+                            method: "POST",
+                            headers: {
+                                "Content-Type": "application/json",
+                            },
+                        });
+                        if (homeResponse.ok) {
+                            const homdata = await homeResponse.json();
+                        }
+                        else {
+                            const companyResponse = await fetch(`${API_BASE_URL}/company-home_mobile?username=${encodeURIComponent(email)}`, {
+                                method: "GET",
+                                headers: {
+                                    "Content-Type": "application/json",
+                                },
+                            });
+                        }
+                        getSessionDetails();
+                        setShowSuccessPopup(true);
+                        setTimeout(() => {
+                            setShowSuccessPopup(false);
+                        }, 1500);
+                    }
+                    catch (err) {
+                        Alert.alert("Error", "Failed to login. Please try again.");
+                    }
+                } else {
+                    Alert.alert("Error", "Wrong password!!")
+                }
+            }
+            else {
+                Alert.alert("Error", "Wrong email!!")
+            }
+        } catch (error) {
+            Alert.alert("Error", "Failed to login. Please try again.");
+        } finally {
+            setIsLoggingIn(false);
+        }
+    };
+    const handleForgotPassword = () => {
+        router.replace('/(tabs)/attendance');
+        // router.replace('/(tabs)/msgDashboard');
+        // setCurrentScreen('forgotPassword');
+    };
+
+    const handleBackToLogin = () => {
+        setCurrentScreen('login');
+    };
+
+    const handleSendCode = () => {
+        // Dummy function to simulate sending verification code
+        Alert.alert("Code Sent", `A verification code has been sent to ${email}`);
+        setVerificationCode(['', '', '', '', '', ''])
+        setCurrentScreen('verificationCode');
+    };
+
+    const handleCodeChange = (text: string, index: number) => {
+        const newCode = [...verificationCode];
+        newCode[index] = text;
+        setVerificationCode(newCode);
+
+        // Auto-advance to next input if a digit was entered
+        if (text.length === 1 && index < 5) {
+            codeInputRefs.current[index + 1]?.focus(); // ✅ Type-safe focus()
+        }
+    };
+
+    const handleKeyPress = (e: { nativeEvent: { key: string } }, index: number) => {
+        // Handle backspace to move to previous input
+        if (e.nativeEvent.key === "Backspace" && index > 0 && verificationCode[index] === "") {
+            codeInputRefs.current[index - 1]?.focus(); // ✅ Type-safe focus()
+        }
+    };
+
+    const handleVerifyCode = () => {
+        const code = verificationCode.join('');
+        if (code.length === 6) {
+            // Dummy verification - in a real app, you'd verify with your backend
+            if (code === '123456') {
+                Alert.alert("Success", "Verification successful! You can now reset your password.");
+                setCurrentScreen('newPassword');
+            } else {
+                Alert.alert("Error", "Invalid verification code. Please try again.");
+            }
+        } else {
+            Alert.alert("Error", "Please enter all 6 digits of the verification code.");
+        }
+    };
+    const validatePasswords = () => {
+        if (newPassword !== confirmPassword) {
+            setPasswordError('Passwords do not match');
+            return false;
+        }
+
+        setPasswordError('');
+        return true;
+    };
+    const handleResetPassword = () => {
+        if (validatePasswords()) {
+            Alert.alert("Success", "Password reset successfully.");
+            router.replace('/');
+        }
+    };
+
+    const renderLoginScreen = () => (
+        <>
+            <View style={styles.logoContainer}>
+                <ColorfulSpiral />
+            </View>
+
+            <Text style={styles.welcomeText}>Welcome!</Text>
+            <View style={styles.crmTextContainer}>
+                <Text style={styles.toText}>to </Text>
+                <Text style={styles.crmText}>Portstay</Text>
+            </View>
+
+            <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Email</Text>
+                <View style={styles.phoneInputWrapper}>
+                    <TextInput
+                        style={styles.input}
+                        value={email}
+                        onChangeText={setEmail}
+                        placeholder="Enter your email"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                    />
+                    <View style={styles.phoneIconContainer}>
+                        <Ionicons name="mail" size={20} color="#7B68EE" />
+                    </View>
+                </View>
+            </View>
+
+            <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <View style={styles.passwordInputWrapper}>
+                    <TextInput
+                        style={styles.input}
+                        value={password}
+                        onChangeText={setPassword}
+                        placeholder="Enter your password"
+                        secureTextEntry={!showPassword}
+                    />
+                    <TouchableWithoutFeedback onPress={togglePasswordVisibility}>
+                        <View style={styles.eyeIconContainer}>
+                            <Ionicons
+                                name={showPassword ? "eye" : "eye-off"}
+                                size={20}
+                                color="#999"
+                            />
+                        </View>
+                    </TouchableWithoutFeedback>
+                </View>
+            </View>
+
+            <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
+                <Text style={styles.loginButtonText}
+                >Login</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+                style={styles.forgotPasswordContainer}
+                onPress={handleForgotPassword}
+            >
+                <Text style={styles.forgotPasswordText}>I forgot my password</Text>
+            </TouchableOpacity>
+        </>
+    );
+
+    const renderForgotPasswordScreen = () => (
+        <>
+            <TouchableOpacity
+                style={styles.backButton}
+                onPress={handleBackToLogin}
+            >
+                <Ionicons name="arrow-back" size={24} color="#7B68EE" />
+            </TouchableOpacity>
+
+            <View style={styles.logoContainer}>
+                <ColorfulSpiral />
+            </View>
+
+            <Text style={styles.welcomeText}>Forgot Password</Text>
+            <Text style={styles.forgotPasswordDescription}>
+                Enter your Email and we'll send you a verification code
+            </Text>
+
+            <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Email</Text>
+                <View style={styles.phoneInputWrapper}>
+                    <TextInput
+                        style={styles.input}
+                        value={email}
+                        onChangeText={setEmail}
+                        placeholder="Enter your email"
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                    />
+                    <View style={styles.phoneIconContainer}>
+                        <Ionicons name="mail" size={20} color="#7B68EE" />
+                    </View>
+                </View>
+            </View>
+
+            <TouchableOpacity
+                style={styles.loginButton}
+                onPress={handleSendCode}
+            >
+                <Text style={styles.loginButtonText}>Send Verification Code</Text>
+            </TouchableOpacity>
+        </>
+    );
+
+    const renderVerificationCodeScreen = () => (
+        <>
+            <TouchableOpacity
+                style={styles.backButton}
+                onPress={() => setCurrentScreen('forgotPassword')}
+            >
+                <Ionicons name="arrow-back" size={24} color="#7B68EE" />
+            </TouchableOpacity>
+
+            <View style={styles.logoContainer}>
+                <ColorfulSpiral />
+            </View>
+
+            <Text style={styles.welcomeText}>Verification Code</Text>
+            <Text style={styles.forgotPasswordDescription}>
+                Enter the 6-digit code sent to {email}
+            </Text>
+
+            <View style={styles.codeInputContainer}>
+                {verificationCode.map((digit, index) => (
+                    <TextInput
+                        key={index}
+                        ref={ref => codeInputRefs.current[index] = ref}
+                        style={styles.codeInput}
+                        value={digit}
+                        onChangeText={text => handleCodeChange(text, index)}
+                        onKeyPress={e => handleKeyPress(e, index)}
+                        keyboardType="number-pad"
+                        maxLength={1}
+                        textAlign="center"
+                    />
+                ))}
+            </View>
+
+            <TouchableOpacity
+                style={styles.loginButton}
+                onPress={handleVerifyCode}
+            >
+                <Text style={styles.loginButtonText}>Verify Code</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.resendCodeContainer}>
+                <Text style={styles.forgotPasswordText}>Resend Code</Text>
+            </TouchableOpacity>
+
+            {/* <Text style={styles.dummyCodeText}>
+                Dummy code for testing: 123456
+            </Text> */}
+        </>
+    );
+    const renderNewPasswordScreen = () => (
+        <>
+            <View style={styles.logoContainer}>
+                <ColorfulSpiral />
+            </View>
+
+            {/* <Text style={styles.welcomeText}>Create a new password for your account</Text> */}
+            <View style={styles.crmTextContainer}>
+                <Text style={styles.crmText}>Reset Password</Text>
+            </View>
+
+            <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <View style={styles.phoneInputWrapper}>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Enter new password"
+                        secureTextEntry={!showNewPassword}
+                        value={newPassword}
+                        onChangeText={setNewPassword}
+                    />
+                    <TouchableOpacity onPress={toggleNewPasswordVisibility} style={styles.eyeIcon}>
+                        {showNewPassword ? <EyeOff size={20} color="#6B7280" /> : <Eye size={20} color="#6B7280" />}
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            <View style={styles.inputContainer}>
+                <Text style={styles.inputLabel}>Confirm Password</Text>
+                <View style={styles.passwordInputWrapper}>
+                    <TextInput
+                        style={styles.input}
+                        placeholder="Confirm your password"
+                        secureTextEntry={!showConfirmPassword}
+                        value={confirmPassword}
+                        onChangeText={setConfirmPassword}
+                    />
+                    <TouchableOpacity onPress={toggleConfirmPasswordVisibility} style={styles.eyeIcon}>
+                        {showConfirmPassword ? <EyeOff size={20} color="#6B7280" /> : <Eye size={20} color="#6B7280" />}
+                    </TouchableOpacity>
+                </View>
+            </View>
+
+            {passwordError ? (
+                <Text style={styles.errorText}>{passwordError}</Text>
+            ) : null}
+
+            {/* Reset Button */}
+            <TouchableOpacity
+                onPress={handleResetPassword}
+                style={styles.resetButton}>
+                <Text style={styles.buttonText}>Reset Password</Text>
+            </TouchableOpacity>
+
+
+        </>
+    );
+    return (
+        <TouchableWithoutFeedback onPress={dismissKeyboard}>
+            <View style={{ flex: 1, marginTop: 20 }}>
+                <KeyboardAvoidingView
+                    style={{ flex: 1 }}
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                    keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+                >
+                    <ScrollView
+                        ref={scrollViewRef}
+                        contentContainerStyle={[
+                            styles.scrollContainer,
+                            keyboardVisible && { paddingBottom: 100 }
+                        ]}
+                        keyboardShouldPersistTaps="always"
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <View style={styles.container}>
+                            {currentScreen === 'login' && renderLoginScreen()}
+                            {currentScreen === 'forgotPassword' && renderForgotPasswordScreen()}
+                            {currentScreen === 'verificationCode' && renderVerificationCodeScreen()}
+                            {currentScreen === 'newPassword' && renderNewPasswordScreen()}
+                        </View>
+                    </ScrollView>
+                </KeyboardAvoidingView>
+
+                {/* Loading Modal */}
+                <Modal
+                    transparent={true}
+                    visible={isLoggingIn}
+                    animationType="fade"
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={styles.modalContent}>
+                            <ActivityIndicator size="large" color="#7B68EE" />
+                            <Text style={styles.loadingText}>Logging in...</Text>
+                        </View>
+                    </View>
+                </Modal>
+
+                {/* Success Popup Modal */}
+                <Modal
+                    transparent={true}
+                    visible={showSuccessPopup}
+                    animationType="fade"
+                >
+                    <View style={styles.modalOverlay}>
+                        <View style={[styles.modalContent, styles.successModalContent]}>
+                            <View style={styles.successIconContainer}>
+                                <Text style={styles.successIcon}>✓</Text>
+                            </View>
+                            <Text style={styles.successText}>Logged in successfully</Text>
+                        </View>
+                    </View>
+                </Modal>
+            </View>
+        </TouchableWithoutFeedback>
+    );
+}
+
+// Custom component for the colorful spiral logo
+const ColorfulSpiral = () => (
+    <Svg width={120} height={120} viewBox="0 0 200 200">
+        <Defs>
+            <LinearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%">
+                <Stop offset="0%" stopColor="#C5E8FF" />
+                <Stop offset="50%" stopColor="#7B68EE" />
+                <Stop offset="100%" stopColor="#9932CC" />
+            </LinearGradient>
+        </Defs>
+        <G>
+            {Array.from({ length: 24 }).map((_, i) => (
+                <Path
+                    key={i}
+                    d={`M 100,100 L ${100 + 70 * Math.cos(i * Math.PI / 12)},${100 + 70 * Math.sin(i * Math.PI / 12)}`}
+                    stroke="url(#grad1)"
+                    strokeWidth={12}
+                    strokeLinecap="round"
+                    transform={`rotate(${i * 15}, 100, 100)`}
+                    opacity={0.8 + (i / 24) * 0.2}
+                />
+            ))}
+        </G>
+    </Svg>
+);
+
+const styles = StyleSheet.create({
+    scrollContainer: {
+        flexGrow: 1,
+        justifyContent: "center",
+        padding: 20,
+        minHeight: Dimensions.get('window').height - 40
+    },
+    container: {
+        flex: 1,
+        backgroundColor: '#FFFFFF',
+        alignItems: 'center',
+        paddingTop: 60,
+        paddingHorizontal: 20,
+        paddingBottom: 40,
+    },
+    backButton: {
+        position: 'absolute',
+        top: 40,
+        left: 20,
+        zIndex: 10,
+    },
+    logoContainer: {
+        marginBottom: 20,
+        alignItems: 'center',
+        marginTop: 20,
+    },
+    welcomeText: {
+        fontSize: 28,
+        fontWeight: 'bold',
+        marginBottom: 5,
+        color: '#333333',
+    },
+    crmTextContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 40,
+    },
+    toText: {
+        fontSize: 28,
+        color: '#333333',
+    },
+    crmText: {
+        fontSize: 28,
+        color: '#243fef',
+        fontWeight: 'bold',
+    },
+    forgotPasswordDescription: {
+        textAlign: 'center',
+        color: '#666666',
+        marginBottom: 30,
+        paddingHorizontal: 20,
+    },
+    inputContainer: {
+        width: '100%',
+        marginBottom: 20,
+    },
+    inputLabel: {
+        fontSize: 14,
+        color: '#666666',
+        marginBottom: 5,
+    },
+    phoneInputWrapper: {
+        flexDirection: 'row',
+        borderWidth: 1,
+        borderColor: '#7B68EE',
+        borderRadius: 10,
+        height: 50,
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        backgroundColor: '#FFFFFF',
+    },
+    passwordInputWrapper: {
+        flexDirection: 'row',
+        borderWidth: 1,
+        borderColor: '#E5E5E5',
+        borderRadius: 10,
+        height: 50,
+        alignItems: 'center',
+        paddingHorizontal: 10,
+        backgroundColor: '#F5F5F5',
+    },
+    input: {
+        flex: 1,
+        height: 50,
+        fontSize: 16,
+        color: '#333333',
+    },
+    phoneIconContainer: {
+        padding: 5,
+    },
+    eyeIconContainer: {
+        padding: 5,
+    },
+    codeInputContainer: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        width: '100%',
+        marginBottom: 30,
+    },
+    codeInput: {
+        width: 45,
+        height: 50,
+        borderWidth: 1,
+        borderColor: '#7B68EE',
+        borderRadius: 10,
+        fontSize: 20,
+        fontWeight: 'bold',
+        color: '#333333',
+        backgroundColor: '#FFFFFF',
+    },
+    loginButton: {
+        backgroundColor: '#7B68EE',
+        width: '100%',
+        height: 50,
+        borderRadius: 25,
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 20,
+    },
+    loginButtonText: {
+        color: '#FFFFFF',
+        fontSize: 18,
+        fontWeight: '500',
+    },
+    forgotPasswordContainer: {
+        marginTop: 20,
+    },
+    forgotPasswordText: {
+        color: '#7B68EE',
+        fontSize: 14,
+    },
+    resendCodeContainer: {
+        marginTop: 20,
+    },
+    dummyCodeText: {
+        marginTop: 30,
+        color: '#999',
+        fontSize: 12,
+    },
+    eyeIcon: {
+        padding: 12,
+    },
+    errorText: {
+        color: '#FF0000',
+        marginBottom: 16,
+        fontSize: 14,
+    },
+    resetButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+        borderRadius: 16,
+        backgroundColor: '#7B68EE',
+        marginTop: 8,
+    },
+    buttonText: {
+        color: '#FFFFFF',
+        fontSize: 18,
+        fontWeight: 'bold',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalContent: {
+        backgroundColor: '#FFFFFF',
+        padding: 20,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    loadingText: {
+        marginTop: 10,
+        fontSize: 16,
+        color: '#7B68EE',
+    },
+    successModalContent: {
+        padding: 25,
+    },
+    successIconContainer: {
+        width: 60,
+        height: 60,
+        borderRadius: 30,
+        backgroundColor: '#4CAF50',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 15,
+    },
+    successIcon: {
+        color: '#FFFFFF',
+        fontSize: 30,
+        fontWeight: 'bold',
+    },
+    successText: {
+        fontSize: 18,
+        color: '#333333',
+        fontWeight: '500',
+        textAlign: 'center',
+    },
+});
+
+
+eas.json code old file if you want to put this app in google play or want to create this app .aab instead .apk file 
+replace this code keep in mind
+{
+  "cli": {
+    "version": ">= 15.0.14",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
+
+
+useEffect(() => {
+    const prepareDashboard = async () => {
+      setLoading(true);
+      // 1. First compile all attendance data calculations 
+      await fetchDashboardData();
+
+      try {
+        // 2. Fetch the profile details directly from setting-mobile
+        const response = await fetch(`${API_BASE_URL}/setting-mobile`, { 
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+        
+        if (response.ok) {
+          const resBody = await response.json();
+          console.log("Setting-mobile full data parsed:", resBody);
+
+          // Standardizes the target profile object layer mapping
+          const profileObj = resBody.profileData || resBody;
+          
+          // 🟢 RESOLVE EMPLOYEE NAME (Matches your backend spring log keys)
+          const realName = profileObj.name || profileObj.firstName || profileObj.employeeName || "";
+          const targetPic = profileObj.profile_pic || "";
+
+          if (targetPic) {
+            setProfilePicId(targetPic);
+          }
+
+          // 🟢 FORCE STATE INGESTION FOR THE HERO CARD
+          if (realName) {
+            setData(prev => ({
+              ...prev,
+              employeeName: realName
+            }));
+          }
+        } else {
+          console.log("Setting-mobile endpoint responded with status:", response.status);
+        }
+      } catch (err) {
+        console.log("Failed to sync profile avatar/name via setting-mobile route:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    prepareDashboard();
+  }, [timeframe]);
+
+
+  // // config/api.ts
+// import { Platform } from 'react-native';
+
+// // Your absolute backend machine route
+// const DEV_API_URL = 'http://192.168.1.25:8080';
+// const PROD_API_URL = 'http://192.168.1.25:8080'; // Set both to the machine IP for internal server testing
+
+// export const API_BASE_URL = __DEV__ ? DEV_API_URL : PROD_API_URL;
+// config/api.ts
+
+

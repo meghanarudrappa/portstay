@@ -251,8 +251,8 @@ export default function DistributorsScreen() {
             <Feather name="arrow-left" size={20} color="#0f172a" />
           </TouchableOpacity>
           <View>
-            <Text style={styles.headerTitle}>Distributor</Text>
-            <Text style={styles.headerSubtitle}>Manage and track your Distributors</Text>
+            <Text style={styles.headerTitle}>Distributors</Text>
+            <Text style={styles.headerSubtitle}>Manage and track your distributors</Text>
           </View>
         </View>
 
@@ -306,7 +306,7 @@ export default function DistributorsScreen() {
         <View style={styles.searchBar}>
           <Feather name="search" size={16} color="#94a3b8" style={{ marginRight: 8 }} />
           <TextInput
-            placeholder="Search distributor by name, company, phone..."
+            placeholder="Search distributors by name, company, phone..."
             value={searchQuery}
             onChangeText={(text) => {
               setSearchQuery(text);

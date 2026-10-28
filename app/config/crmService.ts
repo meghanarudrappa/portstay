@@ -302,7 +302,7 @@
 // };
 import { API_BASE_URL } from '@/app/config/api';
 
-export type CRMModuleType = 'Leads' | 'Contacts' | 'Accounts' | 'Deals'|'Customers'|'Partners'|'Distributors';
+export type CRMModuleType = 'Leads' | 'Contacts' | 'Accounts' | 'Deals'|'Customers'|'Partners'|'Distributors'|'Dealers'|'Suppliers';
 export type AccountStatus = 'New' | 'Active' | 'Not Active' | 'Prospect';
 
 export interface AccountItem {

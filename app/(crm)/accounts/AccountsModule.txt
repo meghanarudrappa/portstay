@@ -545,6 +545,7 @@ import {
   AccountItem,
   AccountStatus,
   fetchAccounts,
+   fetchHomeActivityCounts,
   createCRMItem,
 } from '@/app/config/crmService';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
@@ -757,9 +758,17 @@ export function CreateAccountModal({
 
 export default function AccountsScreen() {
   const router = useRouter();
+  const [accounts, setAccounts] = useState<AccountItem[]>([]);
+
+  const [activityCounts, setActivityCounts] = useState({
+    callCount: 0,
+    mailCount: 0,
+    meetingCount: 0,
+  });
+
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
-  const [accounts, setAccounts] = useState<AccountItem[]>([]);
+  
   const [isModalVisible, setModalVisible] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -844,9 +853,9 @@ export default function AccountsScreen() {
     const avatarTextColor = getAvatarTextColor(index);
     const badgeStyle = getStatusBadgeStyle(displayStatus);
 
-    const callsCount = (item as any).scheduleCall || (item as any).callsCount || 0;
-    const meetingsCount = (item as any).meeting || (item as any).videoCallsCount || 0;
-    const mailsCount = (item as any).mail || (item as any).mailsCount || 0;
+    const callsCount =  (item as any).callsCount || 0;
+    const meetingsCount =  (item as any).videoCallsCount || 0;
+    const mailsCount = (item as any).mailsCount || 0;
 
     return (
       <TouchableOpacity activeOpacity={0.7} style={styles.cardContainer}>

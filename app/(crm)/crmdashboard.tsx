@@ -663,7 +663,7 @@ export default function EnterpriseCrmScreen() {
       icon: 'business',
       color: '#5856d6',
       gradientColors: ['#ffffff', '#f5f3ff'],
-      route: '/accounts/AccountsModule',
+      route: '/accounts/home',
     },
     {
       id: '3',

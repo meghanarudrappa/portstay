@@ -1,6 +1,6 @@
 export type AccountStatus = 'New' | 'Active' | 'Not Active';
 
-export interface AccountItem {
+export interface AccountItems {
   id: string;
   name: string;
   company_Name: string;
@@ -16,6 +16,9 @@ export interface AccountItem {
   annualRevenue?: string;
   description?: string;
   starred?: boolean;
+  callsCount: number;
+  videoCallsCount: number;
+  mailsCount: number;
 
   // Flexible API fallbacks for dynamic responses
   accountId?: string;
@@ -46,14 +49,14 @@ export interface AccountTemplate {
   sub: string;
 }
 
-export interface KanbanAccountStage {
+export interface KanbanStage {
   id: string;
   label: string;
   count: number;
   color: string;
   bg: string;
   borderColor: string;
-  accounts: AccountItem[];
+  accounts: AccountItems[];
 }
 
 export interface CreateAccountPayload {

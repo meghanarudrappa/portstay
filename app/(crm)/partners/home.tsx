@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { KanbanStage } from '@/types/partner';
-import { fetchKanbanData } from '@/app/config/crmService';
+import { fetchKanbanData,fetchHomeActivityCounts } from '@/app/config/crmService';
 import CreatePartnerModal from '@/app/(crm)/partners/CreatePartnerModal';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 
@@ -58,6 +58,13 @@ const getStatusBadgeStyle = (status?: string) => {
 export default function PartnersScreen() {
   const router = useRouter();
   const [partners, setPartners] = useState<any[]>([]);
+
+const [activityCounts, setActivityCounts] = useState({
+      callCount: 0,
+      mailCount: 0,
+      meetingCount: 0,
+    });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -72,36 +79,83 @@ export default function PartnersScreen() {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [showPageSizeMenu, setShowPageSizeMenu] = useState(false);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetchKanbanData('Partners');
-      let parsedPartners: any[] = [];
-      if (Array.isArray(response)) {
-        if (response.length > 0 && response[0].partners) {
-          parsedPartners = response.flatMap((stage: KanbanStage) =>
-            (stage.partners || []).map((partner:any) => ({
-              ...partner,
-              stageLabel: stage.label || partner.status || 'New',
-              stageColor: stage.color,
-            }))
-          );
-        } else {
-          parsedPartners = response.map((partner: any) => ({
-            ...partner,
-            stageLabel: partner.status || partner.kanbanName || 'New',
-            stageColor: partner.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
-          }));
-        }
-      }
-      setPartners(parsedPartners);
-    } catch (error) {
-      console.error('Error fetching partners:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+ const loadData = useCallback(async () => {
+       setLoading(true);
+       try {
+         // Fetch both Kanban data and Backend Activity Counts concurrently
+         const [response, countsResponse] = await Promise.all([
+           fetchKanbanData('Partners'),
+           fetchHomeActivityCounts(),
+         ]);
+   
+         if (countsResponse) {
+           setActivityCounts(countsResponse);
+         }
+   
+         let parsedPartners: any[] = [];
+         
+         const rawData = response as any;
+         const partnersArray = rawData?.crmList || (Array.isArray(response) ? response : []);
+   
+         if (partnersArray.length > 0) {
+           if (partnersArray[0]?.partners && Array.isArray(partnersArray[0].partners)) {
+             parsedPartners = partnersArray.flatMap((stage: KanbanStage) =>
+               (stage.partners || []).map((partner) => {
+                 // === CHANGED: Dynamically compute counts from description array for grouped stage data ===
+                 const descList = partner.description || [];
+                 const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+                 const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+                 const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+   
+                 return {
+                   ...partner,
+                   callCount: partner.callCount || calculatedCalls,
+                   meetUpCount: partner.meetUpCount || calculatedMeetings,
+                   emailCount:partner.emailCount || calculatedMails,
+                   stageLabel: stage.label || partner.status || 'New',
+                   stageColor: stage.color,
+                 };
+               })
+             );
+           } else {
+             parsedPartners = partnersArray.map((partner: any) => {
+               // === CHANGED: Dynamically compute counts from description array for flat list data ===
+               const descList = partner.description || [];
+               const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+               const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+               const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+   
+               return {
+                 ...partner,
+                 callCount: partner.callCount || calculatedCalls,
+                 meetUpCount: partner.meetUpCount || calculatedMeetings,
+                 emailCount: partner.emailCount || calculatedMails,
+                 stageLabel: partner.status || partner.kanbanName || 'New',
+                 stageColor:partner.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
+               };
+             });
+           }
+         }
+   
+         setPartners(parsedPartners);
+         console.log('--- CRM DATA LOADED SUCCESS ---');
+         console.log('Total Loaded Partners:', parsedPartners.length);
+         console.log('Full First PartnerObject:', JSON.stringify(parsedPartners[0], null, 2));
+         if (parsedPartners.length > 0) {
+           console.log('Sample Contact (First Item):', {
+             name: parsedPartners[0].contact_Person ||parsedPartners[0].name || parsedPartners[0].name,
+             callCount: parsedPartners[0].callCount,
+             meetUpCount: parsedPartners[0].meetUpCount,
+             emailCount: parsedPartners[0].emailCount,
+           });
+         }
+       } catch (error) {
+         console.error('Error fetching Partners:', error);
+       } finally {
+         setLoading(false);
+         setRefreshing(false);
+       }
+     }, []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -172,10 +226,10 @@ export default function PartnersScreen() {
     const avatarTextColor = getAvatarTextColor(index);
     const badgeStyle = getStatusBadgeStyle(displayStatus);
 
-    // const callsCount = item.callCount || 0;
-    // console.log(item);
-    // const meetingsCount = item.meetUpCount || 0;
-    //  const mailsCount = item.emailCount ;
+     // === CHANGED: Read pre-calculated count values directly from the item object ===
+    const callsCount = item.callCount || 0;
+    const meetingsCount = item.meetUpCount || 0;
+    const mailsCount = item.emailCount || 0;
 
     return (
       <TouchableOpacity activeOpacity={0.7} style={styles.cardContainer}>
@@ -210,7 +264,7 @@ export default function PartnersScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* <View style={styles.actionChipsRow}>
+          <View style={styles.actionChipsRow}>
             <TouchableOpacity style={styles.actionPill}>
               <Feather name="phone" size={11} color="#2563eb" />
               <View style={[styles.badgeCircle, { backgroundColor: '#ef4444' }]}>
@@ -232,7 +286,7 @@ export default function PartnersScreen() {
               </View>
             </TouchableOpacity>
           
-          </View> */}
+          </View>
         </View>
       </TouchableOpacity>
     );

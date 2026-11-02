@@ -1,3 +1,704 @@
+// import React, { useState, useCallback, useMemo } from 'react';
+// import {
+//   StyleSheet,
+//   Text,
+//   View,
+//   TouchableOpacity,
+//   TextInput,
+//   SafeAreaView,
+//   Modal,
+//   ActivityIndicator,
+//   RefreshControl,
+//   FlatList,
+//   StatusBar,
+// } from 'react-native';
+
+// import { Feather, FontAwesome5 } from '@expo/vector-icons';
+// import { KanbanStage } from '@/types/leads';
+// import { fetchKanbanData, fetchHomeActivityCounts } from '@/app/config/crmService';
+// import CreateLeadModal from '@/app/(crm)/leads/CreateLeadModal';
+// import { Stack, useRouter, useFocusEffect } from 'expo-router';
+
+// // Helper for Initials
+// const getInitials = (name: string): string => {
+//   if (!name) return 'LD';
+//   const parts = name.trim().split(' ');
+//   if (parts.length >= 2) {
+//     return (parts[0][0] + parts[1][0]).toUpperCase();
+//   }
+//   return name.substring(0, 2).toUpperCase();
+// };
+
+// // Helper for Avatar Colors
+// const getAvatarBg = (index: number): string => {
+//   const colors = ['#fce7f3', '#e0e7ff', '#fef3c7', '#dcfce7', '#e0f2fe', '#f3e8ff'];
+//   return colors[index % colors.length];
+// };
+
+// const getAvatarTextColor = (index: number): string => {
+//   const colors = ['#be185d', '#3730a3', '#b45309', '#15803d', '#0369a1', '#6b21a8'];
+//   return colors[index % colors.length];
+// };
+
+// // Helper for Status Badge Styling
+// const getStatusBadgeStyle = (status?: string) => {
+//   const s = (status || '').toLowerCase();
+//   if (s.includes('contact')) return { bg: '#2dd4bf', text: '#ffffff' };
+//   if (s.includes('discussion') || s.includes('negotiation')) return { bg: '#818cf8', text: '#ffffff' };
+//   if (s.includes('qualified') || s.includes('won')) return { bg: '#4ade80', text: '#ffffff' };
+//   return { bg: '#4ade80', text: '#ffffff' };
+// };
+
+// export default function LeadsScreen() {
+//   const router = useRouter();
+//   const [leads, setLeads] = useState<any[]>([]);
+
+//   const [activityCounts, setActivityCounts] = useState({
+//     callCount: 0,
+//     mailCount: 0,
+//     meetingCount: 0,
+//   });
+
+//   const [searchQuery, setSearchQuery] = useState('');
+//   const [loading, setLoading] = useState(true);
+//   const [refreshing, setRefreshing] = useState(false);
+//   const [isModalVisible, setIsModalVisible] = useState(false);
+
+//   // Filter State
+//   const [showFilterBar, setShowFilterBar] = useState(false);
+//   const [selectedStatusFilter, setSelectedStatusFilter] = useState('All');
+
+//   // Pagination State
+//   const [pageSize, setPageSize] = useState<number>(25);
+//   const [currentPage, setCurrentPage] = useState<number>(1);
+//   const [showPageSizeMenu, setShowPageSizeMenu] = useState(false);
+
+// const loadData = useCallback(async () => {
+//     setLoading(true);
+//     try {
+//       // Fetch both Kanban data and Backend Activity Counts concurrently
+//       const [response, countsResponse] = await Promise.all([
+//         fetchKanbanData('Leads'),
+//         fetchHomeActivityCounts(),
+//       ]);
+
+//       if (countsResponse) {
+//         setActivityCounts(countsResponse);
+//       }
+
+//       let parsedLeads: any[] = [];
+      
+//       // FIX: Cast response as 'any' to avoid the TypeScript property error
+//       const rawData = response as any;
+//       const leadsArray = rawData?.crmList || (Array.isArray(response) ? response : []);
+
+//       if (leadsArray.length > 0) {
+//         if (leadsArray[0]?.leads && Array.isArray(leadsArray[0].leads)) {
+//           parsedLeads = leadsArray.flatMap((stage: KanbanStage) =>
+//             (stage.leads || []).map((lead) => ({
+//               ...lead,
+//               stageLabel: stage.label || lead.status || 'New',
+//               stageColor: stage.color,
+//             }))
+//           );
+//         } else {
+//           parsedLeads = leadsArray.map((lead: any) => ({
+//             ...lead,
+//             stageLabel: lead.status || lead.kanbanName || 'New',
+//             stageColor: lead.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
+//           }));
+//         }
+//       }
+
+//       setLeads(parsedLeads);
+//       console.log('--- CRM DATA LOADED SUCCESS ---');
+//       console.log('Total Loaded Leads:', parsedLeads.length);
+//       console.log('Full First Lead Object:', JSON.stringify(parsedLeads[0], null, 2));
+//       if (parsedLeads.length > 0) {
+//         console.log('Sample Lead (First Item):', {
+//           name: parsedLeads[0].contact_Person || parsedLeads[0].name,
+//           callCount: parsedLeads[0].callCount,
+//           meetUpCount: parsedLeads[0].meetUpCount,
+//           emailCount: parsedLeads[0].emailCount,
+//         });
+//       }
+//     } catch (error) {
+//       console.error('Error fetching leads:', error);
+//     } finally {
+//       setLoading(false);
+//       setRefreshing(false);
+//     }
+//   }, []);
+
+//   const onRefresh = useCallback(() => {
+//     setRefreshing(true);
+//     loadData();
+//   }, [loadData]);
+
+//   useFocusEffect(
+//     useCallback(() => {
+//       loadData();
+//     }, [loadData])
+//   );
+
+//   // Filter & Search Logic
+//   const filteredLeads = useMemo(() => {
+//     return leads.filter((lead) => {
+//       // Status Filter
+//       const displayStatus = lead.status || lead.stageLabel || 'New';
+//       if (
+//         selectedStatusFilter !== 'All' &&
+//         displayStatus.toLowerCase() !== selectedStatusFilter.toLowerCase()
+//       ) {
+//         return false;
+//       }
+
+//       // Search Query Filter
+//       if (!searchQuery || searchQuery.trim() === '') return true;
+//       const query = searchQuery.trim().toLowerCase();
+//       const leadName = (
+//         lead.contact_Person ||
+//         lead.contactName ||
+//         lead.name ||
+//         lead.title ||
+//         ''
+//       ).toLowerCase();
+//       const company = (lead.company_Name || lead.companyName || '').toLowerCase();
+//       const phone = (lead.phone || '').toLowerCase();
+//       return leadName.includes(query) || company.includes(query) || phone.includes(query);
+//     });
+//   }, [leads, searchQuery, selectedStatusFilter]);
+
+//   // Paginated Data Logic
+//   const totalPages = Math.ceil(filteredLeads.length / pageSize) || 1;
+//   const paginatedLeads = useMemo(() => {
+//     const startIdx = (currentPage - 1) * pageSize;
+//     return filteredLeads.slice(startIdx, startIdx + pageSize);
+//   }, [filteredLeads, currentPage, pageSize]);
+
+//   const handlePageChange = (page: number) => {
+//     if (page >= 1 && page <= totalPages) {
+//       setCurrentPage(page);
+//     }
+//   };
+
+//   const getLeadId = (item: any, index: number) => item.crm_Id || item.id || `lead-${index}`;
+// const renderLeadCard = ({ item, index }: { item: any; index: number }) => {
+//     const displayName =
+//       item.contact_Person || item.contactName || item.name || item.title || 'Unnamed Lead';
+//     const displayCompany = item.company_Name || item.companyName || '--';
+//     const displayStatus = item.status || item.stageLabel || 'New';
+
+//     // Read individual counts directly from the backend-enriched item object
+// // Inside your renderLeadCard function:
+// const callsCount = (item.description || []).filter((d: any) => d.type === 'call' || d.followType === 'call').length;
+// const meetingsCount = (item.description || []).filter((d: any) => d.type === 'meeting' || d.followType === 'meeting').length;
+// const mailsCount = (item.description || []).filter((d: any) => d.type === 'mail' || d.followType === 'mail').length;
+
+//     const avatarBg = getAvatarBg(index);
+//     const avatarTextColor = getAvatarTextColor(index);
+//     const badgeStyle = getStatusBadgeStyle(displayStatus);
+
+//     return (
+//       <TouchableOpacity activeOpacity={0.7} style={styles.cardContainer}>
+//         {/* Left Avatar */}
+//         <View style={[styles.avatarBox, { backgroundColor: avatarBg }]}>
+//           <Text style={[styles.avatarText, { color: avatarTextColor }]}>
+//             {getInitials(displayName)}
+//           </Text>
+//         </View>
+
+//         {/* Center Content */}
+//         <View style={styles.cardMain}>
+//           <Text style={styles.leadName} numberOfLines={1}>
+//             {displayName}
+//           </Text>
+//           <Text style={styles.companyName} numberOfLines={1}>
+//             Company Name : {displayCompany}
+//           </Text>
+//         </View>
+
+//         {/* Right Section with Dynamic Badges */}
+//         <View style={styles.cardRight}>
+//           <View style={styles.rightTopRow}>
+//             <View style={[styles.statusBadge, { backgroundColor: badgeStyle.bg }]}>
+//               <Text style={styles.statusBadgeText}>{displayStatus}</Text>
+//             </View>
+//           </View>
+
+//           <View style={styles.actionChipsRow}>
+//             {/* Call Badge */}
+//             <TouchableOpacity style={styles.actionPill}>
+//               <Feather name="phone" size={11} color="#2563eb" />
+//               <View style={[styles.badgeCircle, { backgroundColor: '#ef4444' }]}>
+//                 <Text style={styles.badgeCircleText}>{callsCount}</Text>
+//               </View>
+//             </TouchableOpacity>
+
+//             {/* Meeting Badge */}
+//             <TouchableOpacity style={styles.actionPill}>
+//               <FontAwesome5 name="handshake" size={11} color="#2563eb" />
+//               <View style={[styles.badgeCircle, { backgroundColor: '#f97316' }]}>
+//                 <Text style={styles.badgeCircleText}>{meetingsCount}</Text>
+//               </View>
+//             </TouchableOpacity>
+
+//             {/* Mail Badge */}
+//             <TouchableOpacity style={styles.actionPill}>
+//               <Feather name="mail" size={11} color="#2563eb" />
+//               <View style={[styles.badgeCircle, { backgroundColor: '#2563eb' }]}>
+//                 <Text style={styles.badgeCircleText}>{mailsCount}</Text>
+//               </View>
+//             </TouchableOpacity>
+//           </View>
+//         </View>
+//       </TouchableOpacity>
+//     );
+//   };
+
+//   return (
+//     <SafeAreaView style={styles.container}>
+//       <Stack.Screen options={{ headerShown: false }} />
+//       <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
+
+//       {/* Top Header */}
+//       <View style={styles.header}>
+//         <View style={styles.headerLeft}>
+//           {/* Functional Back Arrow */}
+//           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+//             <Feather name="arrow-left" size={20} color="#0f172a" />
+//           </TouchableOpacity>
+//           <View>
+//             <Text style={styles.headerTitle}>Leads</Text>
+//             <Text style={styles.headerSubtitle}>Manage your leads and track their progress</Text>
+//           </View>
+//         </View>
+
+//         <View style={styles.headerActions}>
+//           {/* Filter Toggle */}
+//           <TouchableOpacity
+//             style={styles.iconCircle}
+//             onPress={() => setShowFilterBar((prev) => !prev)}
+//           >
+//             <Feather name="filter" size={18} color="#2563eb" />
+//             <View style={styles.filterDot} />
+//           </TouchableOpacity>
+
+//           {/* + Create Button placed in header right */}
+//           <TouchableOpacity style={styles.createButton} onPress={() => setIsModalVisible(true)}>
+//             <Text style={styles.createBtnText}>+ Create</Text>
+//           </TouchableOpacity>
+//         </View>
+//       </View>
+
+//       {/* Functional Filter Bar */}
+//       {showFilterBar && (
+//         <View style={styles.filterChipBar}>
+//           {['All', 'New', 'Contacted', 'Discussion'].map((filter) => (
+//             <TouchableOpacity
+//               key={filter}
+//               style={[
+//                 styles.filterChip,
+//                 selectedStatusFilter === filter && styles.filterChipActive,
+//               ]}
+//               onPress={() => {
+//                 setSelectedStatusFilter(filter);
+//                 setCurrentPage(1);
+//               }}
+//             >
+//               <Text
+//                 style={[
+//                   styles.filterChipText,
+//                   selectedStatusFilter === filter && styles.filterChipTextActive,
+//                 ]}
+//               >
+//                 {filter}
+//               </Text>
+//             </TouchableOpacity>
+//           ))}
+//         </View>
+//       )}
+
+//       {/* Full-width Search Bar replacing Phone/Call controls */}
+//       <View style={styles.searchSection}>
+//         <View style={styles.searchBar}>
+//           <Feather name="search" size={16} color="#94a3b8" style={{ marginRight: 8 }} />
+//           <TextInput
+//             placeholder="Search leads by name, company, phone..."
+//             value={searchQuery}
+//             onChangeText={(text) => {
+//               setSearchQuery(text);
+//               setCurrentPage(1);
+//             }}
+//             style={styles.searchInput}
+//             placeholderTextColor="#94a3b8"
+//           />
+//           {searchQuery !== '' && (
+//             <TouchableOpacity onPress={() => setSearchQuery('')}>
+//               <Feather name="x" size={15} color="#94a3b8" />
+//             </TouchableOpacity>
+//           )}
+//         </View>
+//       </View>
+
+//       {/* Pagination & Dynamic Dropdown Bar */}
+//       <View style={styles.paginationRow}>
+//         <View style={{ position: 'relative' }}>
+//           <TouchableOpacity
+//             style={styles.showDropdown}
+//             onPress={() => setShowPageSizeMenu((prev) => !prev)}
+//           >
+//             <Text style={styles.showText}>Show : {pageSize}</Text>
+//             <Feather name="chevron-down" size={12} color="#475569" />
+//           </TouchableOpacity>
+
+//           {/* Page Size Dropdown Options */}
+//           {showPageSizeMenu && (
+//             <View style={styles.dropdownMenu}>
+//               {[25, 50, 100].map((size) => (
+//                 <TouchableOpacity
+//                   key={size}
+//                   style={styles.dropdownOption}
+//                   onPress={() => {
+//                     setPageSize(size);
+//                     setCurrentPage(1);
+//                     setShowPageSizeMenu(false);
+//                   }}
+//                 >
+//                   <Text
+//                     style={[
+//                       styles.dropdownOptionText,
+//                       pageSize === size && styles.dropdownOptionSelected,
+//                     ]}
+//                   >
+//                     {size}
+//                   </Text>
+//                 </TouchableOpacity>
+//               ))}
+//             </View>
+//           )}
+//         </View>
+
+//         {/* Dynamic Page Buttons (1, 2, 3...) */}
+//         <View style={styles.pagePills}>
+//           <TouchableOpacity
+//             style={styles.arrowPageBtn}
+//             onPress={() => handlePageChange(currentPage - 1)}
+//             disabled={currentPage === 1}
+//           >
+//             <Feather
+//               name="chevron-left"
+//               size={14}
+//               color={currentPage === 1 ? '#cbd5e1' : '#475569'}
+//             />
+//           </TouchableOpacity>
+
+//           {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+//             <TouchableOpacity
+//               key={page}
+//               style={[
+//                 styles.pageNumberBtn,
+//                 currentPage === page && styles.pageNumberActive,
+//               ]}
+//               onPress={() => handlePageChange(page)}
+//             >
+//               <Text
+//                 style={
+//                   currentPage === page
+//                     ? styles.pageNumberActiveText
+//                     : styles.pageNumberText
+//                 }
+//               >
+//                 {page}
+//               </Text>
+//             </TouchableOpacity>
+//           ))}
+
+//           <TouchableOpacity
+//             style={styles.arrowPageBtn}
+//             onPress={() => handlePageChange(currentPage + 1)}
+//             disabled={currentPage === totalPages}
+//           >
+//             <Feather
+//               name="chevron-right"
+//               size={14}
+//               color={currentPage === totalPages ? '#cbd5e1' : '#475569'}
+//             />
+//           </TouchableOpacity>
+//         </View>
+
+//         <View style={styles.totalBadge}>
+//           <Text style={styles.totalBadgeText}>Total : {filteredLeads.length}</Text>
+//         </View>
+//       </View>
+
+//       {/* Main Cards List */}
+//       {loading ? (
+//         <View style={styles.loaderContainer}>
+//           <ActivityIndicator size="large" color="#2563eb" />
+//         </View>
+//       ) : (
+//         <FlatList
+//           data={paginatedLeads}
+//           keyExtractor={(item, index) => getLeadId(item, index)}
+//           renderItem={renderLeadCard}
+//           contentContainerStyle={styles.listContent}
+//           showsVerticalScrollIndicator={false}
+//           refreshControl={
+//             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+//           }
+//           ListEmptyComponent={
+//             <View style={styles.emptyState}>
+//               <Feather name="file-text" size={32} color="#cbd5e1" />
+//               <Text style={styles.emptyStateTitle}>No Leads Found</Text>
+//               <Text style={styles.emptyStateSub}>
+//                 No leads match your search query or selected filters.
+//               </Text>
+//               <TouchableOpacity
+//                 style={styles.addLeadBtn}
+//                 onPress={() => setIsModalVisible(true)}
+//               >
+//                 <Text style={styles.addLeadBtnText}>+ Add Lead</Text>
+//               </TouchableOpacity>
+//             </View>
+//           }
+//         />
+//       )}
+
+//       {/* Modal */}
+//       <Modal visible={isModalVisible} animationType="slide" transparent>
+//         <CreateLeadModal
+//           onClose={() => setIsModalVisible(false)}
+//           onRefresh={loadData}
+//         />
+//       </Modal>
+//     </SafeAreaView>
+//   );
+// }
+
+// const styles = StyleSheet.create({
+//   container: { flex: 1, backgroundColor: '#f8fafc' },
+
+//   /* Header */
+//   header: {
+//     flexDirection: 'row',
+//     justifyContent: 'space-between',
+//     paddingHorizontal: 16,
+//     paddingTop: 12,
+//     paddingBottom: 8,
+//     alignItems: 'center',
+//     backgroundColor: '#ffffff',
+//   },
+//   headerLeft: { flexDirection: 'row', alignItems: 'center' },
+//   backBtn: { padding: 6, marginRight: 8, borderRadius: 8, backgroundColor: '#f1f5f9' },
+//   headerTitle: { fontSize: 20, fontWeight: '700', color: '#0f172a' },
+//   headerSubtitle: { fontSize: 11, color: '#64748b', marginTop: 1 },
+//   headerActions: { flexDirection: 'row', alignItems: 'center' },
+//   iconCircle: { marginRight: 10, position: 'relative', padding: 6 },
+//   filterDot: {
+//     position: 'absolute',
+//     top: 4,
+//     right: 4,
+//     width: 6,
+//     height: 6,
+//     borderRadius: 3,
+//     backgroundColor: '#2563eb',
+//   },
+//   createButton: {
+//     backgroundColor: '#2563eb',
+//     paddingHorizontal: 12,
+//     paddingVertical: 7,
+//     borderRadius: 8,
+//   },
+//   createBtnText: { color: '#ffffff', fontSize: 12, fontWeight: '600' },
+
+//   /* Filter Chip Bar */
+//   filterChipBar: {
+//     flexDirection: 'row',
+//     paddingHorizontal: 16,
+//     paddingVertical: 6,
+//     backgroundColor: '#ffffff',
+//     borderBottomWidth: 1,
+//     borderBottomColor: '#f1f5f9',
+//   },
+//   filterChip: {
+//     paddingHorizontal: 12,
+//     paddingVertical: 4,
+//     borderRadius: 16,
+//     backgroundColor: '#f1f5f9',
+//     marginRight: 8,
+//   },
+//   filterChipActive: { backgroundColor: '#2563eb' },
+//   filterChipText: { fontSize: 11, color: '#475569', fontWeight: '500' },
+//   filterChipTextActive: { color: '#ffffff', fontWeight: '700' },
+
+//   /* Full-width Search Section */
+//   searchSection: {
+//     paddingHorizontal: 16,
+//     marginVertical: 8,
+//   },
+//   searchBar: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     backgroundColor: '#ffffff',
+//     borderWidth: 1,
+//     borderColor: '#cbd5e1',
+//     borderRadius: 8,
+//     paddingHorizontal: 12,
+//     height: 38,
+//   },
+//   searchInput: { flex: 1, fontSize: 12, color: '#0f172a' },
+
+//   /* Pagination Row */
+//   paginationRow: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     justifyContent: 'space-between',
+//     paddingHorizontal: 16,
+//     marginBottom: 8,
+//     zIndex: 10,
+//   },
+//   showDropdown: {
+//     flexDirection: 'row',
+//     alignItems: 'center',
+//     backgroundColor: '#eff6ff',
+//     paddingHorizontal: 10,
+//     paddingVertical: 5,
+//     borderRadius: 6,
+//   },
+//   showText: { fontSize: 11, color: '#1e293b', fontWeight: '600', marginRight: 4 },
+
+//   /* Dropdown Menu Overlay */
+//   dropdownMenu: {
+//     position: 'absolute',
+//     top: 30,
+//     left: 0,
+//     backgroundColor: '#ffffff',
+//     borderWidth: 1,
+//     borderColor: '#e2e8f0',
+//     borderRadius: 6,
+//     width: 80,
+//     elevation: 4,
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 2 },
+//     shadowOpacity: 0.1,
+//     shadowRadius: 4,
+//     zIndex: 99,
+//   },
+//   dropdownOption: { paddingVertical: 8, paddingHorizontal: 12 },
+//   dropdownOptionText: { fontSize: 11, color: '#334155' },
+//   dropdownOptionSelected: { fontWeight: '700', color: '#2563eb' },
+
+//   pagePills: { flexDirection: 'row', alignItems: 'center' },
+//   arrowPageBtn: { paddingHorizontal: 4, paddingVertical: 4 },
+//   pageNumberBtn: {
+//     width: 24,
+//     height: 24,
+//     borderRadius: 4,
+//     alignItems: 'center',
+//     justifyContent: 'center',
+//     marginHorizontal: 2,
+//     borderWidth: 1,
+//     borderColor: '#e2e8f0',
+//     backgroundColor: '#ffffff',
+//   },
+//   pageNumberActive: { backgroundColor: '#eff6ff', borderColor: '#2563eb' },
+//   pageNumberActiveText: { fontSize: 11, fontWeight: '700', color: '#2563eb' },
+//   pageNumberText: { fontSize: 11, color: '#475569' },
+//   totalBadge: { backgroundColor: '#eff6ff', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
+//   totalBadgeText: { fontSize: 11, fontWeight: '700', color: '#2563eb' },
+
+//   /* Card Item */
+//   listContent: { paddingHorizontal: 16, paddingBottom: 24, paddingTop: 4 },
+//   cardContainer: {
+//     flexDirection: 'row',
+//     backgroundColor: '#ffffff',
+//     borderRadius: 12,
+//     padding: 12,
+//     marginBottom: 8,
+//     alignItems: 'center',
+//     borderWidth: 1,
+//     borderColor: '#f1f5f9',
+//     shadowColor: '#000',
+//     shadowOffset: { width: 0, height: 1 },
+//     shadowOpacity: 0.04,
+//     shadowRadius: 3,
+//     elevation: 1,
+//   },
+//   avatarBox: {
+//     width: 38,
+//     height: 38,
+//     borderRadius: 19,
+//     alignItems: 'center',
+//     justifyContent: 'center',
+//     marginRight: 10,
+//   },
+//   avatarText: { fontSize: 12, fontWeight: '700' },
+//   cardMain: { flex: 1, marginRight: 6 },
+//   leadName: { fontSize: 13, fontWeight: '700', color: '#0f172a' },
+//   companyName: { fontSize: 11, color: '#475569', marginTop: 1 },
+//   subtitleText: { fontSize: 10, color: '#2563eb', marginTop: 3 },
+
+//   cardRight: { alignItems: 'flex-end', justifyContent: 'space-between' },
+//   rightTopRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+//   statusBadge: {
+//     paddingHorizontal: 8,
+//     paddingVertical: 2,
+//     borderRadius: 4,
+//     marginRight: 2,
+//   },
+//   statusBadgeText: { fontSize: 14, fontWeight: '600', color: '#ffffff' },
+//   moreBtn: { padding: 2 },
+
+//   actionChipsRow: { flexDirection: 'row', alignItems: 'center' },
+//   actionPill: {
+//     width: 26,
+//     height: 26,
+//     borderRadius: 13,
+//     borderWidth: 1,
+//     borderColor: '#e0f2fe',
+//     alignItems: 'center',
+//     justifyContent: 'center',
+//     marginLeft: 4,
+//     position: 'relative',
+//     backgroundColor: '#ffffff',
+//   },
+//   badgeCircle: {
+//     position: 'absolute',
+//     top: -3,
+//     right: -3,
+//     width: 12,
+//     height: 12,
+//     borderRadius: 6,
+//     alignItems: 'center',
+//     justifyContent: 'center',
+//   },
+//   badgeCircleText: { color: '#ffffff', fontSize: 8, fontWeight: '700' },
+
+//   /* Loader & Empty State */
+//   loaderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 40 },
+//   emptyState: {
+//     alignItems: 'center',
+//     justifyContent: 'center',
+//     padding: 30,
+//     backgroundColor: '#ffffff',
+//     marginTop: 20,
+//     borderRadius: 8,
+//     borderWidth: 1,
+//     borderColor: '#e2e8f0',
+//   },
+//   emptyStateTitle: { fontSize: 14, fontWeight: '700', color: '#334155', marginTop: 8 },
+//   emptyStateSub: { fontSize: 11, color: '#94a3b8', textAlign: 'center', marginVertical: 4 },
+//   addLeadBtn: {
+//     marginTop: 10,
+//     backgroundColor: '#2563eb',
+//     paddingHorizontal: 14,
+//     paddingVertical: 6,
+//     borderRadius: 6,
+//   },
+//   addLeadBtnText: { color: '#ffffff', fontSize: 12, fontWeight: '600' },
+// });
+
 import React, { useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
@@ -12,9 +713,10 @@ import {
   FlatList,
   StatusBar,
 } from 'react-native';
+
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { KanbanStage } from '@/types/leads';
-import { fetchKanbanData } from '@/app/config/crmService';
+import { fetchKanbanData, fetchHomeActivityCounts } from '@/app/config/crmService';
 import CreateLeadModal from '@/app/(crm)/leads/CreateLeadModal';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 
@@ -51,6 +753,13 @@ const getStatusBadgeStyle = (status?: string) => {
 export default function LeadsScreen() {
   const router = useRouter();
   const [leads, setLeads] = useState<any[]>([]);
+
+  const [activityCounts, setActivityCounts] = useState({
+    callCount: 0,
+    mailCount: 0,
+    meetingCount: 0,
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -68,26 +777,73 @@ export default function LeadsScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetchKanbanData('Leads');
+      // Fetch both Kanban data and Backend Activity Counts concurrently
+      const [response, countsResponse] = await Promise.all([
+        fetchKanbanData('Leads'),
+        fetchHomeActivityCounts(),
+      ]);
+
+      if (countsResponse) {
+        setActivityCounts(countsResponse);
+      }
+
       let parsedLeads: any[] = [];
-      if (Array.isArray(response)) {
-        if (response.length > 0 && response[0].leads) {
-          parsedLeads = response.flatMap((stage: KanbanStage) =>
-            (stage.leads || []).map((lead) => ({
-              ...lead,
-              stageLabel: stage.label || lead.status || 'New',
-              stageColor: stage.color,
-            }))
+      
+      const rawData = response as any;
+      const leadsArray = rawData?.crmList || (Array.isArray(response) ? response : []);
+
+      if (leadsArray.length > 0) {
+        if (leadsArray[0]?.leads && Array.isArray(leadsArray[0].leads)) {
+          parsedLeads = leadsArray.flatMap((stage: KanbanStage) =>
+            (stage.leads || []).map((lead) => {
+              // === CHANGED: Dynamically compute counts from description array for grouped stage data ===
+              const descList = lead.description || [];
+              const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+              const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+              const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+
+              return {
+                ...lead,
+                callCount: lead.callCount || calculatedCalls,
+                meetUpCount: lead.meetUpCount || calculatedMeetings,
+                emailCount: lead.emailCount || calculatedMails,
+                stageLabel: stage.label || lead.status || 'New',
+                stageColor: stage.color,
+              };
+            })
           );
         } else {
-          parsedLeads = response.map((lead: any) => ({
-            ...lead,
-            stageLabel: lead.status || lead.kanbanName || 'New',
-            stageColor: lead.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
-          }));
+          parsedLeads = leadsArray.map((lead: any) => {
+            // === CHANGED: Dynamically compute counts from description array for flat list data ===
+            const descList = lead.description || [];
+            const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+            const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+            const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+
+            return {
+              ...lead,
+              callCount: lead.callCount || calculatedCalls,
+              meetUpCount: lead.meetUpCount || calculatedMeetings,
+              emailCount: lead.emailCount || calculatedMails,
+              stageLabel: lead.status || lead.kanbanName || 'New',
+              stageColor: lead.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
+            };
+          });
         }
       }
+
       setLeads(parsedLeads);
+      console.log('--- CRM DATA LOADED SUCCESS ---');
+      console.log('Total Loaded Leads:', parsedLeads.length);
+      console.log('Full First Lead Object:', JSON.stringify(parsedLeads[0], null, 2));
+      if (parsedLeads.length > 0) {
+        console.log('Sample Lead (First Item):', {
+          name: parsedLeads[0].contact_Person ||parsedLeads[0].name || parsedLeads[0].name,
+          callCount: parsedLeads[0].callCount,
+          meetUpCount: parsedLeads[0].meetUpCount,
+          emailCount: parsedLeads[0].emailCount,
+        });
+      }
     } catch (error) {
       console.error('Error fetching leads:', error);
     } finally {
@@ -155,20 +911,20 @@ export default function LeadsScreen() {
       item.contact_Person || item.contactName || item.name || item.title || 'Unnamed Lead';
     const displayCompany = item.company_Name || item.companyName || '--';
     const displayStatus = item.status || item.stageLabel || 'New';
-    const subtitle = item.viewedTime
-      ? `Viewed · ${item.viewedTime}`
-      : item.date
-      ? `follow date: ${item.follow_Date||"--"}`
-      : 'Created Recently';
+     const follow_Date = item.follow_Date
+      ? `Follow-up : ${item.follow_Date}`
+      : item.viewedTime
+      ? `Viewed : ${item.viewedTime}`
+      : `follow date: · ${item.follow_Date || '--'}`;
+
+    // === CHANGED: Read pre-calculated count values directly from the item object ===
+    const callsCount = item.callCount || 0;
+    const meetingsCount = item.meetUpCount || 0;
+    const mailsCount = item.emailCount || 0;
 
     const avatarBg = getAvatarBg(index);
     const avatarTextColor = getAvatarTextColor(index);
     const badgeStyle = getStatusBadgeStyle(displayStatus);
-
-    const callsCount = item.callCount || 0;
-    console.log(item);
-    const meetingsCount = item.meetUpCount || 0;
-     const mailsCount = item.emailCount ;
 
     return (
       <TouchableOpacity activeOpacity={0.7} style={styles.cardContainer}>
@@ -185,25 +941,23 @@ export default function LeadsScreen() {
             {displayName}
           </Text>
           <Text style={styles.companyName} numberOfLines={1}>
-          Company Name : {displayCompany}
+            Company Name : {displayCompany}
           </Text>
-          <Text style={styles.subtitleText} numberOfLines={1}>
-            {subtitle}
-          </Text>
+           <Text style={styles.subtitleText} numberOfLines={1}>
+                      {follow_Date}
+            </Text>
         </View>
 
-        {/* Right Section */}
+        {/* Right Section with Dynamic Badges */}
         <View style={styles.cardRight}>
           <View style={styles.rightTopRow}>
             <View style={[styles.statusBadge, { backgroundColor: badgeStyle.bg }]}>
               <Text style={styles.statusBadgeText}>{displayStatus}</Text>
             </View>
-            <TouchableOpacity style={styles.moreBtn}>
-              <Feather name="more-vertical" size={16} color="#64748b" />
-            </TouchableOpacity>
           </View>
 
           <View style={styles.actionChipsRow}>
+            {/* Call Badge */}
             <TouchableOpacity style={styles.actionPill}>
               <Feather name="phone" size={11} color="#2563eb" />
               <View style={[styles.badgeCircle, { backgroundColor: '#ef4444' }]}>
@@ -211,6 +965,7 @@ export default function LeadsScreen() {
               </View>
             </TouchableOpacity>
 
+            {/* Meeting Badge */}
             <TouchableOpacity style={styles.actionPill}>
               <FontAwesome5 name="handshake" size={11} color="#2563eb" />
               <View style={[styles.badgeCircle, { backgroundColor: '#f97316' }]}>
@@ -218,13 +973,13 @@ export default function LeadsScreen() {
               </View>
             </TouchableOpacity>
 
+            {/* Mail Badge */}
             <TouchableOpacity style={styles.actionPill}>
               <Feather name="mail" size={11} color="#2563eb" />
-               <View style={[styles.badgeCircle, ]}>
+              <View style={[styles.badgeCircle]}>
                 <Text style={styles.badgeCircleText}>{mailsCount}</Text>
               </View>
             </TouchableOpacity>
-          
           </View>
         </View>
       </TouchableOpacity>

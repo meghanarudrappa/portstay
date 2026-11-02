@@ -316,6 +316,7 @@ export interface AccountItem {
   follow_Date: string;
   status: AccountStatus;
   company_Name?: string;
+  
 }
 
 export interface CRMItemPayload {
@@ -445,3 +446,24 @@ export const createCRMItem = async (payload: CRMItemPayload) => {
 };
 
 export const createLead = createCRMItem;
+
+export const fetchHomeActivityCounts = async () => {
+  try {
+    const response = await fetch(`${API_BASE_URL}/get-home-activity-counts`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include', // Crucial for maintaining the HttpSession
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch activity counts');
+    }
+
+    return await response.json(); // Returns { callCount: X, mailCount: Y, meetingCount: Z }
+  } catch (error) {
+    console.error('Error fetching activity counts:', error);
+    return { callCount: 0, mailCount: 0, meetingCount: 0 };
+  }
+};

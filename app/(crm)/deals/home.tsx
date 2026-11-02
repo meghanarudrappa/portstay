@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { KanbanStage } from '@/types/deals';
-import { fetchKanbanData } from '@/app/config/crmService';
+import { fetchKanbanData, fetchHomeActivityCounts } from '@/app/config/crmService';
 import CreateDealModal from '@/app/(crm)/deals/CreateDealModal';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 
@@ -42,15 +42,24 @@ const getAvatarTextColor = (index: number): string => {
 // Helper for Status Badge Styling
 const getStatusBadgeStyle = (status?: string) => {
   const s = (status || '').toLowerCase();
-  if (s.includes('contact')) return { bg: '#2dd4bf', text: '#ffffff' };
+  if (s.includes('proposal')) return { bg: '#2dd4bf', text: '#ffffff' };
   if (s.includes('discussion') || s.includes('negotiation')) return { bg: '#818cf8', text: '#ffffff' };
-  if (s.includes('qualified') || s.includes('won')) return { bg: '#4ade80', text: '#ffffff' };
+  if (s.includes('qualified') || s.includes('won')) return { bg: '#d4de4a', text: '#ffffff' };
+   if (s.includes('lost')) return { bg: '#de4a4a', text: '#ffffff' };
+
   return { bg: '#4ade80', text: '#ffffff' };
 };
 
 export default function DealsScreen() {
   const router = useRouter();
   const [deals, setDeals] = useState<any[]>([]);
+
+  const [activityCounts, setActivityCounts] = useState({
+    callCount: 0,
+    mailCount: 0,
+    meetingCount: 0,
+  });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -66,35 +75,82 @@ export default function DealsScreen() {
   const [showPageSizeMenu, setShowPageSizeMenu] = useState(false);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetchKanbanData('Deals');
-      let parsedDeals: any[] = [];
-      if (Array.isArray(response)) {
-        if (response.length > 0 && response[0].deals) {
-          parsedDeals = response.flatMap((stage: KanbanStage) =>
-            (stage.deals || []).map((deal) => ({
-              ...deal,
-              stageLabel: stage.label || deal.status || 'New',
-              stageColor: stage.color,
-            }))
-          );
-        } else {
-          parsedDeals = response.map((deal: any) => ({
-            ...deal,
-            stageLabel: deal.status || deal.kanbanName || 'New',
-            stageColor: deal.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
-          }));
-        }
-      }
-      setDeals(parsedDeals);
-    } catch (error) {
-      console.error('Error fetching deals:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+     setLoading(true);
+     try {
+       // Fetch both Kanban data and Backend Activity Counts concurrently
+       const [response, countsResponse] = await Promise.all([
+         fetchKanbanData('Deals'),
+         fetchHomeActivityCounts(),
+       ]);
+ 
+       if (countsResponse) {
+         setActivityCounts(countsResponse);
+       }
+ 
+       let parsedDeals: any[] = [];
+       
+       const rawData = response as any;
+       const dealsArray = rawData?.crmList || (Array.isArray(response) ? response : []);
+ 
+       if (dealsArray.length > 0) {
+         if (dealsArray[0]?.deals && Array.isArray(dealsArray[0].deals)) {
+           parsedDeals = dealsArray.flatMap((stage: KanbanStage) =>
+             (stage.deals || []).map((deal) => {
+               // === CHANGED: Dynamically compute counts from description array for grouped stage data ===
+               const descList = deal.description || [];
+               const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+               const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+               const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+ 
+               return {
+                 ...deal,
+                 callCount: deal.callCount || calculatedCalls,
+                 meetUpCount: deal.meetUpCount || calculatedMeetings,
+                 emailCount: deal.emailCount || calculatedMails,
+                 stageLabel: stage.label || deal.status || 'New',
+                 stageColor: stage.color,
+               };
+             })
+           );
+         } else {
+           parsedDeals = dealsArray.map((deal: any) => {
+             // === CHANGED: Dynamically compute counts from description array for flat list data ===
+             const descList =deal.description || [];
+             const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+             const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+             const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+ 
+             return {
+               ...deal,
+               callCount: deal.callCount || calculatedCalls,
+               meetUpCount: deal.meetUpCount || calculatedMeetings,
+               emailCount: deal.emailCount || calculatedMails,
+               stageLabel: deal.status || deal.kanbanName || 'New',
+               stageColor: deal.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
+             };
+           });
+         }
+       }
+ 
+       setDeals(parsedDeals);
+       console.log('--- CRM DATA LOADED SUCCESS ---');
+       console.log('Total Loaded Deals:', parsedDeals.length);
+       console.log('Full First Deal Object:', JSON.stringify(parsedDeals[0], null, 2));
+       if (parsedDeals.length > 0) {
+         console.log('Sample Deal (First Item):', {
+           name: parsedDeals[0].contact_Person || parsedDeals[0].name,
+           callCount: parsedDeals[0].callCount,
+           meetUpCount: parsedDeals[0].meetUpCount,
+           emailCount: parsedDeals[0].emailCount,
+         });
+       }
+     } catch (error) {
+       console.error('Error fetching deals:', error);
+     } finally {
+       setLoading(false);
+       setRefreshing(false);
+     }
+   }, []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -168,9 +224,11 @@ export default function DealsScreen() {
     const avatarTextColor = getAvatarTextColor(index);
     const badgeStyle = getStatusBadgeStyle(displayStatus);
 
-    const callsCount = item.scheduleCall || item.callsCount || item.callCount || 0;
-    const meetingsCount = item.schedulemeeting || item.videoCallsCount || 0;
-    const mailCount = item.schedulemail || item.mailCount ;
+    // === CHANGED: Read pre-calculated count values directly from the item object ===
+    const callsCount = item.callCount || 0;
+    const meetingsCount = item.meetUpCount || 0;
+    const mailsCount = item.emailCount || 0;
+
 
     return (
       <TouchableOpacity activeOpacity={0.7} style={styles.cardContainer}>
@@ -226,7 +284,7 @@ export default function DealsScreen() {
             <TouchableOpacity style={styles.actionPill}>
               <Feather name="mail" size={11} color="#2563eb" />
               <View style={[styles.badgeCircle, ]}>
-                <Text style={styles.badgeCircleText}>{mailCount}</Text>
+                <Text style={styles.badgeCircleText}>{mailsCount}</Text>
               </View>
             </TouchableOpacity>
           </View>

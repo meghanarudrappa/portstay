@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { KanbanStage } from '@/types/supplier';
-import { fetchKanbanData } from '@/app/config/crmService';
+import { fetchKanbanData, fetchHomeActivityCounts } from '@/app/config/crmService';
 import CreateSuppliersModal from '@/app/(crm)/suppliers/CreateSuppliersModal';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 
@@ -58,6 +58,13 @@ const getStatusBadgeStyle = (status?: string) => {
 export default function SuppliersScreen() {
   const router = useRouter();
   const [suppliers, setSuppliers] = useState<any[]>([]);
+
+const [activityCounts, setActivityCounts] = useState({
+      callCount: 0,
+      mailCount: 0,
+      meetingCount: 0,
+    });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -73,35 +80,83 @@ export default function SuppliersScreen() {
   const [showPageSizeMenu, setShowPageSizeMenu] = useState(false);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetchKanbanData('Suppliers');
-      let parsedSuppliers: any[] = [];
-      if (Array.isArray(response)) {
-        if (response.length > 0 && response[0].suppliers) {
-          parsedSuppliers = response.flatMap((stage: KanbanStage) =>
-            (stage.suppliers || []).map((supplier:any) => ({
-              ...supplier,
-              stageLabel: stage.label || supplier.status || 'New',
-              stageColor: stage.color,
-            }))
-          );
-        } else {
-          parsedSuppliers = response.map((supplier: any) => ({
-            ...supplier,
-            stageLabel: supplier.status || supplier.kanbanName || 'New',
-            stageColor: supplier.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
-          }));
+        setLoading(true);
+        try {
+          // Fetch both Kanban data and Backend Activity Counts concurrently
+          const [response, countsResponse] = await Promise.all([
+            fetchKanbanData('Suppliers'),
+            fetchHomeActivityCounts(),
+          ]);
+    
+          if (countsResponse) {
+            setActivityCounts(countsResponse);
+          }
+    
+          let parsedSuppliers: any[] = [];
+          
+          const rawData = response as any;
+          const suppliersArray = rawData?.crmList || (Array.isArray(response) ? response : []);
+    
+          if (suppliersArray.length > 0) {
+            if (suppliersArray[0]?.suppliers && Array.isArray(suppliersArray[0].suppliers)) {
+              parsedSuppliers = suppliersArray.flatMap((stage: KanbanStage) =>
+                (stage.suppliers || []).map((supplier) => {
+                  // === CHANGED: Dynamically compute counts from description array for grouped stage data ===
+                  const descList = supplier.description || [];
+                  const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+                  const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+                  const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+    
+                  return {
+                    ...supplier,
+                    callCount:supplier.callCount || calculatedCalls,
+                    meetUpCount: supplier.meetUpCount || calculatedMeetings,
+                    emailCount:supplier.emailCount || calculatedMails,
+                    stageLabel: stage.label || supplier.status || 'New',
+                    stageColor: stage.color,
+                  };
+                })
+              );
+            } else {
+              parsedSuppliers = suppliersArray.map((supplier: any) => {
+                // === CHANGED: Dynamically compute counts from description array for flat list data ===
+                const descList = supplier.description || [];
+                const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+                const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+                const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+    
+                return {
+                  ...supplier,
+                  callCount: supplier.callCount || calculatedCalls,
+                  meetUpCount: supplier.meetUpCount || calculatedMeetings,
+                  emailCount: supplier.emailCount || calculatedMails,
+                  stageLabel:supplier.status || supplier.kanbanName || 'New',
+                  stageColor: supplier.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
+                };
+              });
+            }
+          }
+    
+          setSuppliers(parsedSuppliers);
+          console.log('--- CRM DATA LOADED SUCCESS ---');
+          console.log('Total Loaded Suppliers:', parsedSuppliers.length);
+          console.log('Full First Supplier Object:', JSON.stringify(parsedSuppliers[0], null, 2));
+          if (parsedSuppliers.length > 0) {
+            console.log('Sample Contact (First Item):', {
+              name: parsedSuppliers[0].contact_Person ||parsedSuppliers[0].name || parsedSuppliers[0].name,
+              callCount: parsedSuppliers[0].callCount,
+              meetUpCount: parsedSuppliers[0].meetUpCount,
+              emailCount: parsedSuppliers[0].emailCount,
+            });
+          }
+        } catch (error) {
+          console.error('Error fetching Suppliers:', error);
+        } finally {
+          setLoading(false);
+          setRefreshing(false);
         }
-      }
-      setSuppliers(parsedSuppliers);
-    } catch (error) {
-      console.error('Error fetching supplier:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+      }, []);
+  
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -172,10 +227,10 @@ export default function SuppliersScreen() {
     const avatarTextColor = getAvatarTextColor(index);
     const badgeStyle = getStatusBadgeStyle(displayStatus);
 
-    // const callsCount = item.callCount || 0;
-    // console.log(item);
-    // const meetingsCount = item.meetUpCount || 0;
-    //  const mailsCount = item.emailCount ;
+  // === CHANGED: Read pre-calculated count values directly from the item object ===
+    const callsCount = item.callCount || 0;
+    const meetingsCount = item.meetUpCount || 0;
+    const mailsCount = item.emailCount || 0;
 
     return (
       <TouchableOpacity activeOpacity={0.7} style={styles.cardContainer}>
@@ -210,7 +265,7 @@ export default function SuppliersScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* <View style={styles.actionChipsRow}>
+          <View style={styles.actionChipsRow}>
             <TouchableOpacity style={styles.actionPill}>
               <Feather name="phone" size={11} color="#2563eb" />
               <View style={[styles.badgeCircle, { backgroundColor: '#ef4444' }]}>
@@ -232,7 +287,7 @@ export default function SuppliersScreen() {
               </View>
             </TouchableOpacity>
           
-          </View> */}
+          </View>
         </View>
       </TouchableOpacity>
     );

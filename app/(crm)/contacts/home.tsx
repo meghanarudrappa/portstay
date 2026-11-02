@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { KanbanStage } from '@/types/contacts';
-import { fetchKanbanData } from '@/app/config/crmService';
+import { fetchKanbanData, fetchHomeActivityCounts  } from '@/app/config/crmService';
 import CreateContactModal from '@/app/(crm)/contacts/CreateContactModal';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 
@@ -42,15 +42,22 @@ const getAvatarTextColor = (index: number): string => {
 // Helper for Status Badge Styling
 const getStatusBadgeStyle = (status?: string) => {
   const s = (status || '').toLowerCase();
-  if (s.includes('not qualified') || s.includes('lost')) return { bg: '#f97316', text: '#ffffff' };
-  if (s.includes('contact')) return { bg: '#2dd4bf', text: '#ffffff' };
-  if (s.includes('discussion') || s.includes('negotiation')) return { bg: '#818cf8', text: '#ffffff' };
-  return { bg: '#2563eb', text: '#ffffff' }; // Default Active status
+  if (s.includes('not active') || s.includes('lost')) return { bg: '#f97316', text: '#ffffff' };
+  if (s.includes('prospect')) return { bg: '#818cf8', text: '#ffffff' };
+  if (s.includes('active')) return { bg: '#20b2aa', text: '#ffffff' };
+  return { bg: '#4ade80', text: '#ffffff' }; // Default Active / New
 };
 
 export default function ContactsScreen() {
   const router = useRouter();
   const [contacts, setContacts] = useState<any[]>([]);
+
+   const [activityCounts, setActivityCounts] = useState({
+      callCount: 0,
+      mailCount: 0,
+      meetingCount: 0,
+    });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -68,26 +75,73 @@ export default function ContactsScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetchKanbanData('Contacts');
+      // Fetch both Kanban data and Backend Activity Counts concurrently
+      const [response, countsResponse] = await Promise.all([
+        fetchKanbanData('Contacts'),
+        fetchHomeActivityCounts(),
+      ]);
+
+      if (countsResponse) {
+        setActivityCounts(countsResponse);
+      }
+
       let parsedContacts: any[] = [];
-      if (Array.isArray(response)) {
-        if (response.length > 0 && response[0].contacts) {
-          parsedContacts = response.flatMap((stage: KanbanStage) =>
-            (stage.contacts || []).map((contact) => ({
-              ...contact,
-              stageLabel: stage.label || contact.status || 'New',
-              stageColor: stage.color,
-            }))
+      
+      const rawData = response as any;
+      const contactsArray = rawData?.crmList || (Array.isArray(response) ? response : []);
+
+      if (contactsArray.length > 0) {
+        if (contactsArray[0]?.contacts && Array.isArray(contactsArray[0].contacts)) {
+          parsedContacts = contactsArray.flatMap((stage: KanbanStage) =>
+            (stage.contacts || []).map((contact) => {
+              // === CHANGED: Dynamically compute counts from description array for grouped stage data ===
+              const descList = contact.description || [];
+              const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+              const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+              const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+
+              return {
+                ...contact,
+                callCount: contact.callCount || calculatedCalls,
+                meetUpCount: contact.meetUpCount || calculatedMeetings,
+                emailCount: contact.emailCount || calculatedMails,
+                stageLabel: stage.label || contact.status || 'New',
+                stageColor: stage.color,
+              };
+            })
           );
         } else {
-          parsedContacts = response.map((contact: any) => ({
-            ...contact,
-            stageLabel: contact.status || contact.kanbanName || 'New',
-            stageColor: contact.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
-          }));
+          parsedContacts = contactsArray.map((contact: any) => {
+            // === CHANGED: Dynamically compute counts from description array for flat list data ===
+            const descList = contact.description || [];
+            const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+            const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+            const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+
+            return {
+              ...contact,
+              callCount: contact.callCount || calculatedCalls,
+              meetUpCount: contact.meetUpCount || calculatedMeetings,
+              emailCount: contact.emailCount || calculatedMails,
+              stageLabel: contact.status || contact.kanbanName || 'New',
+              stageColor: contact.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
+            };
+          });
         }
       }
+
       setContacts(parsedContacts);
+      console.log('--- CRM DATA LOADED SUCCESS ---');
+      console.log('Total Loaded Contacts:', parsedContacts.length);
+      console.log('Full First Contact Object:', JSON.stringify(parsedContacts[0], null, 2));
+      if (parsedContacts.length > 0) {
+        console.log('Sample Contact (First Item):', {
+          name: parsedContacts[0].contact_Person ||parsedContacts[0].name || parsedContacts[0].name,
+          callCount: parsedContacts[0].callCount,
+          meetUpCount: parsedContacts[0].meetUpCount,
+          emailCount: parsedContacts[0].emailCount,
+        });
+      }
     } catch (error) {
       console.error('Error fetching contacts:', error);
     } finally {
@@ -165,9 +219,10 @@ export default function ContactsScreen() {
     const avatarTextColor = getAvatarTextColor(index);
     const badgeStyle = getStatusBadgeStyle(displayStatus);
 
-    const callsCount = item.scheduleCall || item.callsCount || item.callCount || 0;
-    const meetingsCount = item.meeting || item.videoCallsCount || item.meetUpCount || 0;
-    const mailsCount = item.mail || item.MailsCount || item.mailUpCount ;
+     // === CHANGED: Read pre-calculated count values directly from the item object ===
+    const callsCount = item.callCount || 0;
+    const meetingsCount = item.meetUpCount || 0;
+    const mailsCount = item.emailCount || 0;
 
     return (
       <TouchableOpacity activeOpacity={0.7} style={styles.cardContainer}>

@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { Feather, FontAwesome5 } from '@expo/vector-icons';
 import { KanbanStage } from '@/types/customer';
-import { fetchKanbanData } from '@/app/config/crmService';
+import { fetchKanbanData,fetchHomeActivityCounts  } from '@/app/config/crmService';
 import CreateCustomerModal from '@/app/(crm)/Customers/CreateCustomerModal';
 import { Stack, useRouter, useFocusEffect } from 'expo-router';
 
@@ -47,6 +47,7 @@ const getAvatarTextColor = (index: number): string => {
 //   if (s.includes('not active') || s.includes('lost')) return { bg: '#de4a4a', text: '#ffffff' };
 //   return { bg: '#4ade80', text: '#ffffff' };
 // };
+
 const getStatusBadgeStyle = (status?: string) => {
   const s = (status || '').toLowerCase();
   if (s.includes('not active') || s.includes('lost')) return { bg: '#f97316', text: '#ffffff' };
@@ -58,6 +59,13 @@ const getStatusBadgeStyle = (status?: string) => {
 export default function CustomersScreen() {
   const router = useRouter();
   const [customers, setCustomers] = useState<any[]>([]);
+
+const [activityCounts, setActivityCounts] = useState({
+      callCount: 0,
+      mailCount: 0,
+      meetingCount: 0,
+    });
+
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -73,35 +81,82 @@ export default function CustomersScreen() {
   const [showPageSizeMenu, setShowPageSizeMenu] = useState(false);
 
   const loadData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await fetchKanbanData('Customers');
-      let parsedCustomers: any[] = [];
-      if (Array.isArray(response)) {
-        if (response.length > 0 && response[0].customers) {
-          parsedCustomers = response.flatMap((stage: KanbanStage) =>
-            (stage.customers || []).map((customer:any) => ({
-              ...customer,
-              stageLabel: stage.label || customer.status || 'New',
-              stageColor: stage.color,
-            }))
-          );
-        } else {
-          parsedCustomers = response.map((customer: any) => ({
-            ...customer,
-            stageLabel: customer.status || customer.kanbanName || 'New',
-            stageColor: customer.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
-          }));
+      setLoading(true);
+      try {
+        // Fetch both Kanban data and Backend Activity Counts concurrently
+        const [response, countsResponse] = await Promise.all([
+          fetchKanbanData('Customers'),
+          fetchHomeActivityCounts(),
+        ]);
+  
+        if (countsResponse) {
+          setActivityCounts(countsResponse);
         }
+  
+        let parsedCustomers: any[] = [];
+        
+        const rawData = response as any;
+        const customersArray = rawData?.crmList || (Array.isArray(response) ? response : []);
+  
+        if (customersArray.length > 0) {
+          if (customersArray[0]?.customers && Array.isArray(customersArray[0].customers)) {
+            parsedCustomers = customersArray.flatMap((stage: KanbanStage) =>
+              (stage.customers || []).map((customer) => {
+                // === CHANGED: Dynamically compute counts from description array for grouped stage data ===
+                const descList = customer.description || [];
+                const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+                const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+                const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+  
+                return {
+                  ...customer,
+                  callCount: customer.callCount || calculatedCalls,
+                  meetUpCount: customer.meetUpCount || calculatedMeetings,
+                  emailCount: customer.emailCount || calculatedMails,
+                  stageLabel: stage.label || customer.status || 'New',
+                  stageColor: stage.color,
+                };
+              })
+            );
+          } else {
+            parsedCustomers = customersArray.map((customer: any) => {
+              // === CHANGED: Dynamically compute counts from description array for flat list data ===
+              const descList = customer.description || [];
+              const calculatedCalls = descList.filter((d: any) => d.scheduleType === 'call').length;
+              const calculatedMeetings = descList.filter((d: any) => d.scheduleType === 'meeting').length;
+              const calculatedMails = descList.filter((d: any) => d.scheduleType === 'mail' || d.scheduleType === 'email').length;
+  
+              return {
+                ...customer,
+                callCount: customer.callCount || calculatedCalls,
+                meetUpCount: customer.meetUpCount || calculatedMeetings,
+                emailCount: customer.emailCount || calculatedMails,
+                stageLabel: customer.status || customer.kanbanName || 'New',
+                stageColor: customer.status === 'Negotiation' ? '#f59e0b' : '#3b82f6',
+              };
+            });
+          }
+        }
+  
+        setCustomers(parsedCustomers);
+        console.log('--- CRM DATA LOADED SUCCESS ---');
+        console.log('Total Loaded Customers:', parsedCustomers.length);
+        console.log('Full First Customer Object:', JSON.stringify(parsedCustomers[0], null, 2));
+        if (parsedCustomers.length > 0) {
+          console.log('Sample Contact (First Item):', {
+            name: parsedCustomers[0].contact_Person ||parsedCustomers[0].name || parsedCustomers[0].name,
+            callCount: parsedCustomers[0].callCount,
+            meetUpCount: parsedCustomers[0].meetUpCount,
+            emailCount: parsedCustomers[0].emailCount,
+          });
+        }
+      } catch (error) {
+        console.error('Error fetching Customers:', error);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
       }
-      setCustomers(parsedCustomers);
-    } catch (error) {
-      console.error('Error fetching customers:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
+    }, []);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -172,10 +227,10 @@ export default function CustomersScreen() {
     const avatarTextColor = getAvatarTextColor(index);
     const badgeStyle = getStatusBadgeStyle(displayStatus);
 
-    // const callsCount = item.callCount || 0;
-    // console.log(item);
-    // const meetingsCount = item.meetUpCount || 0;
-    //  const mailsCount = item.emailCount ;
+    // === CHANGED: Read pre-calculated count values directly from the item object ===
+    const callsCount = item.callCount || 0;
+    const meetingsCount = item.meetUpCount || 0;
+    const mailsCount = item.emailCount || 0;
 
     return (
       <TouchableOpacity activeOpacity={0.7} style={styles.cardContainer}>
@@ -210,7 +265,7 @@ export default function CustomersScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* <View style={styles.actionChipsRow}>
+          <View style={styles.actionChipsRow}>
             <TouchableOpacity style={styles.actionPill}>
               <Feather name="phone" size={11} color="#2563eb" />
               <View style={[styles.badgeCircle, { backgroundColor: '#ef4444' }]}>
@@ -232,7 +287,7 @@ export default function CustomersScreen() {
               </View>
             </TouchableOpacity>
           
-          </View> */}
+          </View>
         </View>
       </TouchableOpacity>
     );
